@@ -41,8 +41,7 @@ export function getOpenAIConfig(): { client: OpenAI; model: string } {
 
 function usesBedrock(): boolean {
   return !!(
-    process.env.AWS_BEARER_TOKEN_BEDROCK ||
-    (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
+    process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
   );
 }
 
@@ -56,21 +55,14 @@ export function getAnthropicConfig(): {
   model: string;
 } {
   if (usesBedrock()) {
-    const client = new AnthropicBedrock(
-      process.env.AWS_BEARER_TOKEN_BEDROCK
-        ? {
-            awsBearerToken: process.env.AWS_BEARER_TOKEN_BEDROCK,
-            awsRegion: process.env.AWS_REGION ?? "us-east-1",
-          }
-        : {
-            awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
-            awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
-            awsRegion: process.env.AWS_REGION ?? "us-east-1",
-            ...(process.env.AWS_SESSION_TOKEN && {
-              awsSessionToken: process.env.AWS_SESSION_TOKEN,
-            }),
-          }
-    );
+    const client = new AnthropicBedrock({
+      awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
+      awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
+      awsRegion: process.env.AWS_REGION ?? "us-east-1",
+      ...(process.env.AWS_SESSION_TOKEN && {
+        awsSessionToken: process.env.AWS_SESSION_TOKEN,
+      }),
+    });
     return {
       messages: client.messages as unknown as Anthropic["messages"],
       model:

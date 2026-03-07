@@ -296,7 +296,14 @@ export default function ChatPage() {
       console.error("Profile update failed:", err);
     }
 
-    resetSession();
+    const followUpContent =
+      decision === "accept"
+        ? `Great choice! I've saved your preference. What else can I help you find?`
+        : decision === "suggest_similar"
+        ? `Got it — I'll look for similar options next time. What else are you shopping for?`
+        : `Noted, those weren't the right fit. What else can I help you find?`;
+
+    resetSession({ role: "assistant", content: followUpContent });
   }
 
   function onFeedbackSkip() {
@@ -313,10 +320,18 @@ export default function ChatPage() {
       feedbackTags: [],
       feedbackText: null,
     }).catch(console.error);
-    resetSession();
+
+    const followUpContent =
+      decision === "accept"
+        ? `Great choice! What else can I help you find?`
+        : decision === "suggest_similar"
+        ? `Got it. What else are you shopping for?`
+        : `Noted. What else can I help you find?`;
+
+    resetSession({ role: "assistant", content: followUpContent });
   }
 
-  function resetSession() {
+  function resetSession(followUpMsg?: ChatMsg) {
     setPhase("idle");
     setRankedResults([]);
     setCandidates([]);
@@ -325,9 +340,12 @@ export default function ChatPage() {
     setNullProduct(false);
     setShowLowConf(false);
     setClarificationCount(0);
-    historyRef.current = [];
+    historyRef.current = followUpMsg ? [followUpMsg] : [];
     sessionRef.current = null;
     pendingDecision.current = null;
+    if (followUpMsg) {
+      setMessages((prev) => [...prev, followUpMsg]);
+    }
   }
 
   // ── Constraint chip removal → re-search ──────────────────────────────────

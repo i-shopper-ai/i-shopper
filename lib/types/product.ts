@@ -14,11 +14,13 @@ export type Product = {
 export type RankedProduct = {
   productId: string;
   score: number;
-  reason: string;
+  // null until generateBatchReasons is called for the page this product appears on
+  reason: string | null;
   matchedAttributes: string[];
 };
 
 export type RerankerOutput = {
   nullProduct: boolean;
+  rationale?: string; // populated when nullProduct=true, explains why confidence is low
   results: RankedProduct[];
 };

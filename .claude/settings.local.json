@@ -1,10 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install 2>&1)",
-      "Bash(npx tsc --noEmit 2>&1)",
-      "Bash(which vercel 2>/dev/null; git -C /Users/xy51/Desktop/i-shopper status 2>&1; node --version; npm --version)",
-      "Bash(git init && git add -A && git commit -m \"Initial commit: Next.js 14 i-shopper MVP\n\n- Next.js 14 App Router scaffold\n- TypeScript types: Product, UserProfile, Session\n- lib/db: Vercel KV helpers + Supabase session logging\n- lib/agents: GPT-4o intent agent, Claude Sonnet reranker + profile agent\n- lib/api: SerpAPI wrapper \\(Google Shopping + Amazon fallback, Jaccard dedup\\)\n- API routes: /chat /search /rerank /profile/get /profile/update /log /onboarding\n- UI: onboarding flow \\(3-card stepper, swipeable\\), main chat page\n- Components: ProductCard, ConstraintChip, DecisionButtons, FeedbackModal, NullProductState\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\" 2>&1)"
+"Bash(*)", "Read(*)", "Write(*)"
     ]
   }
 }

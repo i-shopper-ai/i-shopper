@@ -10,6 +10,8 @@ import { FeedbackModal } from "@/app/components/FeedbackModal";
 import { NullProductState } from "@/app/components/NullProductState";
 
 import type { Product, RankedProduct, RerankerOutput } from "@/lib/types/product";
+import { PAGE_SIZE } from "@/lib/agents/rerankerAgent";
+import type { BatchReason } from "@/lib/agents/rerankerAgent";
 import type {
   IntentAgentOutput,
   DetectedConstraint,
@@ -21,7 +23,11 @@ import type { ProfileData } from "@/lib/types/profile";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type ChatMsg = { role: "user" | "assistant"; content: string };
+// TEST_MODE: start with `npm run dev:test` (sets NEXT_PUBLIC_TEST_MODE=1).
+// Injects pipeline stage outputs into the chatbox; skips profile updates.
+const TEST_MODE = process.env.NEXT_PUBLIC_TEST_MODE === "1";
+
+type ChatMsg = { role: "user" | "assistant" | "debug"; content: string };
 
 type Phase =
   | "idle"
@@ -53,6 +59,73 @@ async function apiFetch<T>(url: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ── Test-mode debug formatters ────────────────────────────────────────────────
+
+function fmtStage1(intent: IntentAgentOutput): string {
+  const constraintStr =
+    intent.detectedConstraints.length > 0
+      ? intent.detectedConstraints.map((c) => `${c.type}: ${c.value}`).join("  ·  ")
+      : "none";
+  const queriesStr = intent.searchQueries
+    .map((q, i) => `  ${i + 1}. "${q}"`)
+    .join("\n");
+  const clarifyStr = intent.needsClarification
+    ? `asking — "${intent.clarifyingQuestion}"`
+    : "none";
+  return (
+    `Stage 1 — Intent Agent\n` +
+    `Queries (${intent.searchQueries.length}):\n${queriesStr}\n` +
+    `Constraints: ${constraintStr}\n` +
+    `Clarification: ${clarifyStr}`
+  );
+}
+
+function fmtStage2(candidates: Product[]): string {
+  const googleCount = candidates.filter((p) => p.source === "google").length;
+  const amazonCount = candidates.length - googleCount;
+  const sample = candidates.slice(0, 5);
+  const rows = sample
+    .map((p) => {
+      const price = `$${p.price.toFixed(2)}`.padEnd(8);
+      const title = p.title.length > 48 ? p.title.slice(0, 45) + "…" : p.title;
+      const stars = p.rating ? `★${p.rating}` : "";
+      const reviews = p.reviewCount ? `(${p.reviewCount})` : "";
+      return `  ${price} ${title}  ${stars} ${reviews}  [${p.source}]`.trimEnd();
+    })
+    .join("\n");
+  const more = candidates.length > 5 ? `\n  … and ${candidates.length - 5} more` : "";
+  return (
+    `Stage 2 — Product Search\n` +
+    `${candidates.length} candidates  ·  ${googleCount} google  ·  ${amazonCount} amazon\n` +
+    `${rows}${more}`
+  );
+}
+
+function fmtStage3(reranked: RerankerOutput, candidates: Product[]): string {
+  const topScore = reranked.results[0]?.score ?? 0;
+  const header =
+    `Stage 3 — Reranker\n` +
+    `nullProduct: ${reranked.nullProduct}  ·  topScore: ${topScore.toFixed(2)}  ·  scored: ${reranked.results.length}`;
+  if (reranked.nullProduct && reranked.rationale) {
+    return `${header}\nRationale: ${reranked.rationale}`;
+  }
+  // Show only top-K (those with reasons generated) — same as what the user sees
+  const topK = reranked.results.slice(0, PAGE_SIZE).filter((r) => r.reason !== null);
+  const rows = topK.map((r) => {
+    const product = candidates.find((c) => c.id === r.productId);
+    const title = product
+      ? (product.title.length > 48 ? product.title.slice(0, 45) + "…" : product.title)
+      : r.productId;
+    const attrs = r.matchedAttributes.join(", ") || "—";
+    return (
+      `  ${r.score.toFixed(2)}  ${title}\n` +
+      `        → "${r.reason}"\n` +
+      `        → [${attrs}]`
+    );
+  });
+  return `${header}\nTop ${topK.length} shown:\n${rows.join("\n")}`;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
@@ -69,14 +142,18 @@ export default function ChatPage() {
   const [clarificationCount, setClarificationCount] = useState(0);
 
   // History for intent agent (all prior messages in OpenAI role/content format)
-  const historyRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  // Stores user/assistant turns sent to the intent agent. "debug" entries are
+  // UI-only and filtered out before the array is forwarded to the API.
+  const historyRef = useRef<ChatMsg[]>([]);
 
   // Products
   const [constraints, setConstraints] = useState<DetectedConstraint[]>([]);
   const [candidates, setCandidates] = useState<Product[]>([]);
   const [rankedResults, setRankedResults] = useState<RankedProduct[]>([]);
   const [nullProduct, setNullProduct] = useState(false);
+  const [nullRationale, setNullRationale] = useState<string | null>(null);
   const [showLowConf, setShowLowConf] = useState(false);
+  const [resultPage, setResultPage] = useState(0);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   // Session tracking
@@ -99,7 +176,11 @@ export default function ChatPage() {
     const hasSeenOnboarding = localStorage.getItem("hasSeenOnboarding");
 
     fetch(`/api/profile/get?userId=${id}`)
-      .then((r) => r.json())
+      .then((r) => {
+        // A 500 means KV is misconfigured — treat as "no profile" so onboarding fires
+        if (r.status === 500) return { profile: null };
+        return r.json();
+      })
       .then(({ profile }) => {
         if (!profile && !hasSeenOnboarding) {
           router.push("/onboarding");
@@ -107,7 +188,7 @@ export default function ChatPage() {
           setReady(true);
         }
       })
-      .catch(() => setReady(true)); // network error → still allow chat
+      .catch(() => setReady(true)); // true network failure → still allow chat
   }, [router]);
 
   // Auto-scroll to bottom
@@ -135,9 +216,13 @@ export default function ChatPage() {
           message: userText,
           userId,
           clarificationCount,
-          // Send all prior turns EXCEPT the current message (already appended above)
-          history: historyRef.current.slice(0, -1),
+          // Send all prior user/assistant turns (debug entries are UI-only, excluded)
+          history: historyRef.current.filter((m) => m.role !== "debug").slice(0, -1),
         });
+
+        if (TEST_MODE) {
+          setMessages((prev) => [...prev, { role: "debug", content: fmtStage1(intent) }]);
+        }
 
         if (intent.needsClarification && intent.clarifyingQuestion) {
           const aMsg: ChatMsg = {
@@ -157,6 +242,9 @@ export default function ChatPage() {
           "/api/search",
           { queries: intent.searchQueries, constraints: intent.detectedConstraints }
         );
+        if (TEST_MODE) {
+          setMessages((prev) => [...prev, { role: "debug", content: fmtStage2(pool) }]);
+        }
 
         // ── 3. Rerank ────────────────────────────────────────────────────
         const reranked = await apiFetch<RerankerOutput>("/api/rerank", {
@@ -164,12 +252,17 @@ export default function ChatPage() {
           userId,
           constraints: intent.detectedConstraints,
         });
+        if (TEST_MODE) {
+          setMessages((prev) => [...prev, { role: "debug", content: fmtStage3(reranked, pool) }]);
+        }
 
         setCandidates(pool);
         setConstraints(intent.detectedConstraints);
         setRankedResults(reranked.results);
         setNullProduct(reranked.nullProduct);
+        setNullRationale(reranked.rationale ?? null);
         setShowLowConf(false);
+        setResultPage(0);
         setSelectedProductId(null);
 
         // ── 4. Fetch profileBefore for session log ───────────────────────
@@ -179,9 +272,9 @@ export default function ChatPage() {
         // ── 5. Initialise session record ─────────────────────────────────
         const sessionId = crypto.randomUUID();
 
-        // Build clarifications array from history pairs
+        // Build clarifications array from history pairs (debug entries excluded)
         const clarifications: { question: string; answer: string }[] = [];
-        const hist = historyRef.current;
+        const hist = historyRef.current.filter((m) => m.role !== "debug");
         for (let i = 0; i < hist.length - 1; i++) {
           if (hist[i].role === "assistant" && hist[i + 1].role === "user") {
             clarifications.push({
@@ -215,11 +308,13 @@ export default function ChatPage() {
             title: p.title,
             price: p.price,
           })),
-          rankedResults: reranked.results.map((r) => ({
-            productId: r.productId,
-            score: r.score,
-            reason: r.reason,
-          })),
+          rankedResults: reranked.results
+            .filter((r) => r.reason !== null)
+            .map((r) => ({
+              productId: r.productId,
+              score: r.score,
+              reason: r.reason as string,
+            })),
           userDecision: null,
           acceptedProductId: null,
           feedbackTags: [],
@@ -282,25 +377,30 @@ export default function ChatPage() {
           )
         : [];
 
-    try {
-      await apiFetch("/api/profile/update", {
-        userId,
-        sessionId: session.sessionId,
-        decision,
-        acceptedProduct,
-        rejectedProducts,
-        feedbackTags: tags,
-        feedbackText: text || null,
-      });
-    } catch (err) {
-      console.error("Profile update failed:", err);
+    if (!TEST_MODE) {
+      try {
+        await apiFetch("/api/profile/update", {
+          userId,
+          sessionId: session.sessionId,
+          decision,
+          acceptedProduct,
+          rejectedProducts,
+          feedbackTags: tags,
+          feedbackText: text || null,
+        });
+      } catch (err) {
+        console.error("Profile update failed:", err);
+      }
+    }
+
+    if (decision === "suggest_similar") {
+      showNextPage().catch(console.error);
+      return;
     }
 
     const followUpContent =
       decision === "accept"
         ? `Great choice! I've saved your preference. What else can I help you find?`
-        : decision === "suggest_similar"
-        ? `Got it — I'll look for similar options next time. What else are you shopping for?`
         : `Noted, those weren't the right fit. What else can I help you find?`;
 
     resetSession({ role: "assistant", content: followUpContent });
@@ -308,24 +408,28 @@ export default function ChatPage() {
 
   function onFeedbackSkip() {
     setFeedbackOpen(false);
-    // Log the skip as a signal (empty feedback)
     const decision = pendingDecision.current!;
     const session = sessionRef.current!;
-    apiFetch("/api/profile/update", {
-      userId,
-      sessionId: session.sessionId,
-      decision,
-      acceptedProduct: null,
-      rejectedProducts: [],
-      feedbackTags: [],
-      feedbackText: null,
-    }).catch(console.error);
+    if (!TEST_MODE) {
+      apiFetch("/api/profile/update", {
+        userId,
+        sessionId: session.sessionId,
+        decision,
+        acceptedProduct: null,
+        rejectedProducts: [],
+        feedbackTags: [],
+        feedbackText: null,
+      }).catch(console.error);
+    }
+
+    if (decision === "suggest_similar") {
+      showNextPage().catch(console.error);
+      return;
+    }
 
     const followUpContent =
       decision === "accept"
         ? `Great choice! What else can I help you find?`
-        : decision === "suggest_similar"
-        ? `Got it. What else are you shopping for?`
         : `Noted. What else can I help you find?`;
 
     resetSession({ role: "assistant", content: followUpContent });
@@ -338,7 +442,9 @@ export default function ChatPage() {
     setConstraints([]);
     setSelectedProductId(null);
     setNullProduct(false);
+    setNullRationale(null);
     setShowLowConf(false);
+    setResultPage(0);
     setClarificationCount(0);
     historyRef.current = followUpMsg ? [followUpMsg] : [];
     sessionRef.current = null;
@@ -346,6 +452,65 @@ export default function ChatPage() {
     if (followUpMsg) {
       setMessages((prev) => [...prev, followUpMsg]);
     }
+  }
+
+  // ── Suggest similar: page through already-ranked candidates ─────────────
+
+  async function showNextPage() {
+    const nextPage = resultPage + 1;
+    if (nextPage * PAGE_SIZE >= rankedResults.length) {
+      // Exhausted all ranked candidates — prompt a new search
+      const msg: ChatMsg = {
+        role: "assistant",
+        content: "That's all the results I found for this search. Try rephrasing or start a new search!",
+      };
+      setMessages((prev) => [...prev, msg]);
+      historyRef.current = [msg];
+      resetSession();
+      return;
+    }
+
+    // Fetch reasons for this page's products before displaying them.
+    // Reasons are generated lazily per page so we only pay for what's shown.
+    const pageSlice = rankedResults.slice(nextPage * PAGE_SIZE, (nextPage + 1) * PAGE_SIZE);
+    const needsReasons = pageSlice.some((r) => r.reason === null);
+
+    if (needsReasons) {
+      setPhase("searching");
+      try {
+        const batchProducts = pageSlice
+          .map((r) => candidates.find((c) => c.id === r.productId))
+          .filter((p): p is Product => p != null);
+
+        const { reasons } = await apiFetch<{ reasons: BatchReason[] }>("/api/reasons", {
+          products: batchProducts,
+          userId,
+          constraints,
+        });
+
+        const reasonMap = new Map(reasons.map((r) => [r.productId, r]));
+        setRankedResults((prev) =>
+          prev.map((r) => {
+            const rr = reasonMap.get(r.productId);
+            return rr ? { ...r, reason: rr.reason, matchedAttributes: rr.matchedAttributes } : r;
+          })
+        );
+      } catch (err) {
+        console.error("[showNextPage] reason generation failed:", err);
+        // Show cards without reasons rather than blocking the user
+      }
+    }
+
+    setResultPage(nextPage);
+    setSelectedProductId(null);
+    setPhase("results");
+
+    const msg: ChatMsg = {
+      role: "assistant",
+      content: `Here are more results (${nextPage * PAGE_SIZE + 1}–${Math.min((nextPage + 1) * PAGE_SIZE, rankedResults.length)} of ${rankedResults.length}):`,
+    };
+    setMessages((prev) => [...prev, msg]);
+    historyRef.current = [...historyRef.current, msg];
   }
 
   // ── Constraint chip removal → re-search ──────────────────────────────────
@@ -372,7 +537,9 @@ export default function ChatPage() {
       setCandidates(pool);
       setRankedResults(reranked.results);
       setNullProduct(reranked.nullProduct);
+      setNullRationale(reranked.rationale ?? null);
       setShowLowConf(false);
+      setResultPage(0);
       setSelectedProductId(null);
       setPhase(reranked.nullProduct ? "null_product" : "results");
     } catch (err) {
@@ -384,6 +551,7 @@ export default function ChatPage() {
   // ── Derived display data ─────────────────────────────────────────────────
 
   const displayItems = rankedResults
+    .slice(resultPage * PAGE_SIZE, (resultPage + 1) * PAGE_SIZE)
     .map((r) => ({
       ranking: r,
       product: candidates.find((c) => c.id === r.productId),
@@ -424,9 +592,15 @@ export default function ChatPage() {
         {/* Message feed */}
         <div className="chatFeed" ref={feedRef}>
           {messages.length === 0 && (
-            <p style={{ color: "#71717a", alignSelf: "center", marginTop: 40 }}>
-              What are you shopping for today?
-            </p>
+            TEST_MODE ? (
+              <div className="msg debug" style={{ marginTop: 40 }}>
+                {`test mode\npipeline stage outputs will appear here after each query`}
+              </div>
+            ) : (
+              <p style={{ color: "#71717a", alignSelf: "center", marginTop: 40 }}>
+                What are you shopping for today?
+              </p>
+            )
           )}
 
           {messages.map((m, i) => (
@@ -459,6 +633,7 @@ export default function ChatPage() {
           {/* Null product state */}
           {showNull && !showLowConf && (
             <NullProductState
+              rationale={nullRationale}
               onRefine={resetSession}
               onShowAnyway={() => setShowLowConf(true)}
             />
@@ -472,7 +647,7 @@ export default function ChatPage() {
                   key={product.id}
                   product={product}
                   ranking={ranking}
-                  lowConfidence={nullProduct}
+                  lowConfidence={nullProduct || resultPage > 0}
                   selected={selectedProductId === product.id}
                   onSelect={setSelectedProductId}
                 />

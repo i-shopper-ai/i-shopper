@@ -136,9 +136,12 @@ async function fetchAmazon(query: string): Promise<Product[]> {
 export async function fetchCandidates(queries: string[]): Promise<Product[]> {
   const perQuery = await Promise.all(
     queries.map(async (q) => {
-      const google = await fetchGoogleShopping(q);
-      if (google.length >= 5) return google;
-      const amazon = await fetchAmazon(q);
+      // Fire both sources in parallel; merge results regardless.
+      // Avoids the sequential Google → (wait) → Amazon fallback penalty.
+      const [google, amazon] = await Promise.all([
+        fetchGoogleShopping(q),
+        fetchAmazon(q),
+      ]);
       return [...google, ...amazon];
     })
   );

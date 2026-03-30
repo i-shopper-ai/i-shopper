@@ -53,7 +53,7 @@ export function ProductCard({
         {lowConfidence && <span className="lowConfBadge">Low confidence</span>}
         <p className="productTitle">{product.title}</p>
         <p className="productPrice">${product.price.toFixed(2)}</p>
-        <p className="productReason">{ranking.reason}</p>
+        {ranking.reason && <p className="productReason">{ranking.reason}</p>}
         {product.rating > 0 && (
           <p className="productRating">
             {starString(product.rating)} ({product.reviewCount.toLocaleString()})

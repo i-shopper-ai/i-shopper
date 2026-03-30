@@ -48,9 +48,11 @@ function usesBedrock(): boolean {
 /**
  * Returns the Anthropic messages interface and the model ID to use.
  * Bedrock model IDs differ from the direct API — configure via BEDROCK_CLAUDE_MODEL
- * if you need a specific version. Defaults to Claude 3.5 Sonnet v2 cross-region.
+ * (Sonnet) or BEDROCK_CLAUDE_HAIKU_MODEL (Haiku) if you need a specific version.
+ *
+ * Pass tier="haiku" for agents that need speed over depth (e.g. reranker).
  */
-export function getAnthropicConfig(): {
+export function getAnthropicConfig(tier: "sonnet" | "haiku" = "sonnet"): {
   messages: Anthropic["messages"];
   model: string;
 } {
@@ -63,15 +65,19 @@ export function getAnthropicConfig(): {
         awsSessionToken: process.env.AWS_SESSION_TOKEN,
       }),
     });
+    const model =
+      tier === "haiku"
+        ? (process.env.BEDROCK_CLAUDE_HAIKU_MODEL ?? "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        : (process.env.BEDROCK_CLAUDE_MODEL ?? "us.anthropic.claude-3-5-sonnet-20241022-v2:0");
     return {
       messages: client.messages as unknown as Anthropic["messages"],
-      model:
-        process.env.BEDROCK_CLAUDE_MODEL ??
-        "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+      model,
     };
   }
+  const model =
+    tier === "haiku" ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
   return {
     messages: new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }).messages,
-    model: "claude-sonnet-4-6",
+    model,
   };
 }

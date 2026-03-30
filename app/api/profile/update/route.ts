@@ -53,17 +53,18 @@ export async function POST(request: Request) {
       updatedAt: new Date().toISOString(),
     };
 
-    // Write updated profile to KV and patch the session log in Supabase in parallel
-    await Promise.all([
-      setProfile(updatedProfile),
-      updateSessionDecision(sessionId, {
-        userDecision: decision,
-        acceptedProductId: acceptedProduct?.id ?? null,
-        feedbackTags,
-        feedbackText,
-        profileAfter: updatedData,
-      }),
-    ]);
+    // Write updated profile to KV — this must succeed.
+    await setProfile(updatedProfile);
+
+    // Patch the session log in Supabase — fire-and-forget so a missing
+    // Supabase config (or transient error) never blocks or fails the response.
+    updateSessionDecision(sessionId, {
+      userDecision: decision,
+      acceptedProductId: acceptedProduct?.id ?? null,
+      feedbackTags,
+      feedbackText,
+      profileAfter: updatedData,
+    }).catch((err) => console.error("[/api/profile/update] Supabase patch failed:", err));
 
     return NextResponse.json({ profile: updatedProfile });
   } catch (err) {

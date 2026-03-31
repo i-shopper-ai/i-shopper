@@ -23,10 +23,6 @@ import type { ProfileData } from "@/lib/types/profile";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-// TEST_MODE: start with `npm run dev:test` (sets NEXT_PUBLIC_TEST_MODE=1).
-// Injects pipeline stage outputs into the chatbox; skips profile updates.
-const TEST_MODE = process.env.NEXT_PUBLIC_TEST_MODE === "1";
-
 type ChatMsg = { role: "user" | "assistant" | "debug"; content: string };
 
 type Phase =
@@ -135,6 +131,9 @@ export default function ChatPage() {
   const [userId, setUserId] = useState<string>("");
   const [ready, setReady] = useState(false);
 
+  // null = not yet chosen for this chat; true/false = chosen
+  const [testMode, setTestMode] = useState<boolean | null>(null);
+
   // Conversation
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -220,7 +219,7 @@ export default function ChatPage() {
           history: historyRef.current.filter((m) => m.role !== "debug").slice(0, -1),
         });
 
-        if (TEST_MODE) {
+        if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage1(intent) }]);
         }
 
@@ -242,7 +241,7 @@ export default function ChatPage() {
           "/api/search",
           { queries: intent.searchQueries, constraints: intent.detectedConstraints }
         );
-        if (TEST_MODE) {
+        if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage2(pool) }]);
         }
 
@@ -252,7 +251,7 @@ export default function ChatPage() {
           userId,
           constraints: intent.detectedConstraints,
         });
-        if (TEST_MODE) {
+        if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage3(reranked, pool) }]);
         }
 
@@ -377,7 +376,7 @@ export default function ChatPage() {
           )
         : [];
 
-    if (!TEST_MODE) {
+    if (!testMode === true) {
       try {
         await apiFetch("/api/profile/update", {
           userId,
@@ -410,7 +409,7 @@ export default function ChatPage() {
     setFeedbackOpen(false);
     const decision = pendingDecision.current!;
     const session = sessionRef.current!;
-    if (!TEST_MODE) {
+    if (!testMode === true) {
       apiFetch("/api/profile/update", {
         userId,
         sessionId: session.sessionId,
@@ -446,12 +445,11 @@ export default function ChatPage() {
     setShowLowConf(false);
     setResultPage(0);
     setClarificationCount(0);
-    historyRef.current = followUpMsg ? [followUpMsg] : [];
+    setTestMode(null); // prompt mode selection at the start of each new chat
+    historyRef.current = [];
     sessionRef.current = null;
     pendingDecision.current = null;
-    if (followUpMsg) {
-      setMessages((prev) => [...prev, followUpMsg]);
-    }
+    setMessages(followUpMsg ? [followUpMsg] : []);
   }
 
   // ── Suggest similar: page through already-ranked candidates ─────────────
@@ -591,15 +589,31 @@ export default function ChatPage() {
 
         {/* Message feed */}
         <div className="chatFeed" ref={feedRef}>
-          {messages.length === 0 && (
-            TEST_MODE ? (
-              <div className="msg debug" style={{ marginTop: 40 }}>
-                {`test mode\npipeline stage outputs will appear here after each query`}
+          {testMode === null ? (
+            <div className="modePicker">
+              <p>Choose a mode for this chat</p>
+              <div className="modeOptions">
+                <button className="modeBtn" onClick={() => setTestMode(false)}>
+                  <span className="modeBtnLabel">Regular</span>
+                  <span className="modeBtnSub">Shop normally</span>
+                </button>
+                <button className="modeBtn test" onClick={() => setTestMode(true)}>
+                  <span className="modeBtnLabel">Test</span>
+                  <span className="modeBtnSub">Show pipeline stages</span>
+                </button>
               </div>
-            ) : (
-              <p style={{ color: "#71717a", alignSelf: "center", marginTop: 40 }}>
-                What are you shopping for today?
-              </p>
+            </div>
+          ) : (
+            messages.length === 0 && (
+              testMode === true ? (
+                <div className="msg debug" style={{ marginTop: 40 }}>
+                  {`test mode\npipeline stage outputs will appear here after each query`}
+                </div>
+              ) : (
+                <p style={{ color: "#71717a", alignSelf: "center", marginTop: 40 }}>
+                  What are you shopping for today?
+                </p>
+              )
             )
           )}
 
@@ -679,12 +693,12 @@ export default function ChatPage() {
                   send(input);
                 }
               }}
-              disabled={isLoading}
+              disabled={isLoading || testMode === null}
             />
             <button
               className="sendBtn"
               onClick={() => send(input)}
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading || testMode === null || !input.trim()}
             >
               Send
             </button>

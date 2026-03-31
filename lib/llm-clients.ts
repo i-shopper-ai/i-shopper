@@ -58,8 +58,8 @@ export function getAnthropicConfig(tier: "sonnet" | "haiku" = "sonnet"): {
 } {
   if (usesBedrock()) {
     const client = new AnthropicBedrock({
-      awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
-      awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
+      awsAccessKey: process.env.AWS_ACCESS_KEY_ID!,
+      awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY!,
       awsRegion: process.env.AWS_REGION ?? "us-east-1",
       ...(process.env.AWS_SESSION_TOKEN && {
         awsSessionToken: process.env.AWS_SESSION_TOKEN,

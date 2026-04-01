@@ -28,7 +28,8 @@ type ChatMsg = { role: "user" | "assistant" | "debug"; content: string };
 type Phase =
   | "idle"
   | "thinking"      // waiting for intent agent
-  | "searching"     // waiting for search + rerank
+  | "searching"     // waiting for search API
+  | "reranking"     // waiting for reranker
   | "results"       // product cards shown, awaiting decision
   | "null_product"  // null product state shown
   | "feedback";     // feedback modal open
@@ -319,6 +320,7 @@ export default function ChatPage() {
         }
 
         // ── 3. Rerank ────────────────────────────────────────────────────
+        setPhase("reranking");
         const reranked = await apiFetch<RerankerOutput>("/api/rerank", {
           candidates: pool,
           userId,
@@ -716,7 +718,7 @@ export default function ChatPage() {
     );
   }
 
-  const isLoading = phase === "thinking" || phase === "searching";
+  const isLoading = phase === "thinking" || phase === "searching" || phase === "reranking";
   const showProducts =
     (phase === "results" || phase === "feedback") && displayItems.length > 0;
   const showNull = phase === "null_product";
@@ -770,7 +772,7 @@ export default function ChatPage() {
               <span className="dot" />
               <span className="dot" />
               <span style={{ fontSize: 13, color: "#71717a", marginLeft: 4 }}>
-                {phase === "thinking" ? "Thinking…" : "Searching…"}
+                {phase === "thinking" ? "Thinking…" : phase === "reranking" ? "Evaluating…" : "Searching…"}
               </span>
             </div>
           )}

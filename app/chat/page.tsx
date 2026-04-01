@@ -97,6 +97,79 @@ function fmtStage2(candidates: Product[]): string {
   );
 }
 
+function fmtStage4(
+  decision: UserDecision,
+  acceptedProduct: Product | null,
+  rejectedProducts: Product[],
+  tags: FeedbackTag[],
+  text: string,
+  profileBefore: ProfileData | null,
+  profileAfter: ProfileData | null
+): string {
+  const lines: string[] = ["Stage 4 — Profile Update"];
+
+  const parts: string[] = [`Decision: ${decision}`];
+  if (tags.length > 0) parts.push(`tags: ${tags.join(", ")}`);
+  if (text) parts.push(`"${text}"`);
+  lines.push(parts.join("  ·  "));
+
+  if (acceptedProduct) {
+    lines.push(`Accepted: "${acceptedProduct.title.slice(0, 48)}" — $${acceptedProduct.price.toFixed(2)}`);
+  }
+  if (rejectedProducts.length > 0) {
+    lines.push(`Rejected: ${rejectedProducts.length} product${rejectedProducts.length > 1 ? "s" : ""}`);
+  }
+
+  if (!profileBefore || !profileAfter) {
+    lines.push("Profile: update skipped (no profile)");
+    return lines.join("\n");
+  }
+
+  const diffs: string[] = [];
+
+  // Budget ranges
+  const bdBefore = profileBefore.budgetRanges.default;
+  const bdAfter = profileAfter.budgetRanges.default;
+  if (bdBefore.min !== bdAfter.min || bdBefore.max !== bdAfter.max) {
+    diffs.push(`  budget.default: $${bdBefore.min}–$${bdBefore.max} → $${bdAfter.min}–$${bdAfter.max}`);
+  }
+
+  // Priority attributes
+  const paAdded = profileAfter.priorityAttributes.filter(a => !profileBefore.priorityAttributes.includes(a));
+  const paRemoved = profileBefore.priorityAttributes.filter(a => !profileAfter.priorityAttributes.includes(a));
+  if (paAdded.length) diffs.push(`  priorityAttributes +[${paAdded.join(", ")}]`);
+  if (paRemoved.length) diffs.push(`  priorityAttributes -[${paRemoved.join(", ")}]`);
+
+  // Anti-preferences
+  for (const k of ["brands", "materials", "formFactors"] as const) {
+    const added = profileAfter.antiPreferences[k].filter(v => !profileBefore.antiPreferences[k].includes(v));
+    const removed = profileBefore.antiPreferences[k].filter(v => !profileAfter.antiPreferences[k].includes(v));
+    if (added.length) diffs.push(`  antiPreferences.${k} +[${added.join(", ")}]`);
+    if (removed.length) diffs.push(`  antiPreferences.${k} -[${removed.join(", ")}]`);
+  }
+
+  // Past signals
+  const newSignals = profileAfter.pastSignals.filter(
+    s => !profileBefore.pastSignals.some(b => b.attribute === s.attribute && b.weight === s.weight)
+  );
+  for (const s of newSignals) {
+    const before = profileBefore.pastSignals.find(b => b.attribute === s.attribute);
+    if (before) {
+      diffs.push(`  pastSignal[${s.attribute}]: ${before.weight} → ${s.weight}`);
+    } else {
+      diffs.push(`  pastSignal[${s.attribute}]: new (weight ${s.weight}, ${s.source})`);
+    }
+  }
+
+  lines.push(
+    diffs.length === 0
+      ? "Profile diff: no changes"
+      : `Profile diff (${diffs.length} change${diffs.length > 1 ? "s" : ""}):\n${diffs.join("\n")}`
+  );
+
+  return lines.join("\n");
+}
+
 function fmtStage3(reranked: RerankerOutput, candidates: Product[]): string {
   const topScore = reranked.results[0]?.score ?? 0;
   const header =
@@ -348,7 +421,7 @@ export default function ChatPage() {
         setPhase("idle");
       }
     },
-    [userId, clarificationCount, phase]
+    [userId, clarificationCount, phase, testMode]
   );
 
   // ── Decision handling ─────────────────────────────────────────────────────
@@ -376,20 +449,52 @@ export default function ChatPage() {
           )
         : [];
 
-    if (!testMode === true) {
+    if (testMode === true) {
       try {
-        await apiFetch("/api/profile/update", {
-          userId,
-          sessionId: session.sessionId,
-          decision,
-          acceptedProduct,
-          rejectedProducts,
-          feedbackTags: tags,
-          feedbackText: text || null,
-        });
+        const { profile: updatedProfile } = await apiFetch<{ profile: { profile: ProfileData } }>(
+          "/api/profile/update",
+          {
+            userId,
+            sessionId: session.sessionId,
+            decision,
+            acceptedProduct,
+            rejectedProducts,
+            feedbackTags: tags,
+            feedbackText: text || null,
+          }
+        );
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "debug",
+            content: fmtStage4(
+              decision,
+              acceptedProduct,
+              rejectedProducts,
+              tags,
+              text || "",
+              session.profileBefore,
+              updatedProfile.profile
+            ),
+          },
+        ]);
       } catch (err) {
         console.error("Profile update failed:", err);
+        setMessages((prev) => [
+          ...prev,
+          { role: "debug", content: "Stage 4 — Profile Update\nFailed: " + String(err) },
+        ]);
       }
+    } else {
+      apiFetch("/api/profile/update", {
+        userId,
+        sessionId: session.sessionId,
+        decision,
+        acceptedProduct,
+        rejectedProducts,
+        feedbackTags: tags,
+        feedbackText: text || null,
+      }).catch((err) => console.error("Profile update failed:", err));
     }
 
     if (decision === "suggest_similar") {
@@ -409,7 +514,42 @@ export default function ChatPage() {
     setFeedbackOpen(false);
     const decision = pendingDecision.current!;
     const session = sessionRef.current!;
-    if (!testMode === true) {
+
+    if (testMode === true) {
+      apiFetch<{ profile: { profile: ProfileData } }>("/api/profile/update", {
+        userId,
+        sessionId: session.sessionId,
+        decision,
+        acceptedProduct: null,
+        rejectedProducts: [],
+        feedbackTags: [],
+        feedbackText: null,
+      })
+        .then(({ profile: updatedProfile }) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "debug",
+              content: fmtStage4(
+                decision,
+                null,
+                [],
+                [],
+                "",
+                session.profileBefore,
+                updatedProfile.profile
+              ),
+            },
+          ]);
+        })
+        .catch((err) => {
+          console.error("Profile update failed:", err);
+          setMessages((prev) => [
+            ...prev,
+            { role: "debug", content: "Stage 4 — Profile Update\nFailed: " + String(err) },
+          ]);
+        });
+    } else {
       apiFetch("/api/profile/update", {
         userId,
         sessionId: session.sessionId,

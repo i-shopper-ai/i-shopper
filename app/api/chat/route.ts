@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { runIntentAgent } from "@/lib/agents/intentAgent";
 import { getProfile } from "@/lib/db/kv";
 
+export const maxDuration = 30;
+
 export interface ChatRequestBody {
   message: string;
   userId: string;

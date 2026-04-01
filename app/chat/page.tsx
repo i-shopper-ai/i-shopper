@@ -129,22 +129,24 @@ function fmtStage4(
   const diffs: string[] = [];
 
   // Budget ranges
-  const bdBefore = profileBefore.budgetRanges.default;
-  const bdAfter = profileAfter.budgetRanges.default;
-  if (bdBefore.min !== bdAfter.min || bdBefore.max !== bdAfter.max) {
+  const bdBefore = profileBefore.budgetRanges?.default;
+  const bdAfter = profileAfter.budgetRanges?.default;
+  if (bdBefore && bdAfter && (bdBefore.min !== bdAfter.min || bdBefore.max !== bdAfter.max)) {
     diffs.push(`  budget.default: $${bdBefore.min}–$${bdBefore.max} → $${bdAfter.min}–$${bdAfter.max}`);
   }
 
   // Priority attributes
-  const paAdded = profileAfter.priorityAttributes.filter(a => !profileBefore.priorityAttributes.includes(a));
-  const paRemoved = profileBefore.priorityAttributes.filter(a => !profileAfter.priorityAttributes.includes(a));
+  const paAdded = (profileAfter.priorityAttributes ?? []).filter(a => !(profileBefore.priorityAttributes ?? []).includes(a));
+  const paRemoved = (profileBefore.priorityAttributes ?? []).filter(a => !(profileAfter.priorityAttributes ?? []).includes(a));
   if (paAdded.length) diffs.push(`  priorityAttributes +[${paAdded.join(", ")}]`);
   if (paRemoved.length) diffs.push(`  priorityAttributes -[${paRemoved.join(", ")}]`);
 
   // Anti-preferences
   for (const k of ["brands", "materials", "formFactors"] as const) {
-    const added = profileAfter.antiPreferences[k].filter(v => !profileBefore.antiPreferences[k].includes(v));
-    const removed = profileBefore.antiPreferences[k].filter(v => !profileAfter.antiPreferences[k].includes(v));
+    const before = profileBefore.antiPreferences?.[k] ?? [];
+    const after = profileAfter.antiPreferences?.[k] ?? [];
+    const added = after.filter(v => !before.includes(v));
+    const removed = before.filter(v => !after.includes(v));
     if (added.length) diffs.push(`  antiPreferences.${k} +[${added.join(", ")}]`);
     if (removed.length) diffs.push(`  antiPreferences.${k} -[${removed.join(", ")}]`);
   }

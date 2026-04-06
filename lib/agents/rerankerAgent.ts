@@ -23,23 +23,83 @@ function buildConstraintSection(constraints: DetectedConstraint[]): string {
     : "";
 }
 
-// Compact representation for the scoring pass.
+// ── Bayesian rating ───────────────────────────────────────────────────────────
+// Smooths raw star ratings toward a 3.5-star prior weighted at 50 reviews.
+// This prevents a 5★/1-review item from outranking a 4.6★/4900-review item.
+// Example: 5★/1 review → 3.53  vs  4.6★/4900 reviews → 4.59
+const BAYES_PRIOR_RATING = 3.5;
+const BAYES_PRIOR_WEIGHT = 50;
+
+function bayesianRating(rating: number, reviewCount: number): number {
+  if (!rating) return BAYES_PRIOR_RATING;
+  return parseFloat(
+    (
+      (rating * reviewCount + BAYES_PRIOR_RATING * BAYES_PRIOR_WEIGHT) /
+      (reviewCount + BAYES_PRIOR_WEIGHT)
+    ).toFixed(2)
+  );
+}
+
+// ── Price filter ──────────────────────────────────────────────────────────────
+// Deterministic pre-filter applied before LLM scoring.
+// Drops products clearly outside a stated price range so the LLM scorer
+// doesn't need to penalise them (and can't accidentally promote them).
+
+function parsePriceRange(value: string): { min?: number; max?: number } | null {
+  // "40-50", "10000-15000", "$40–$50"
+  const rangeMatch = value.match(/([\d,]+)\s*[-–]\s*([\d,]+)/);
+  if (rangeMatch) {
+    return {
+      min: parseFloat(rangeMatch[1].replace(/,/g, "")),
+      max: parseFloat(rangeMatch[2].replace(/,/g, "")),
+    };
+  }
+  // "under $80", "under 100 dollars", "below $20"
+  const upperMatch = value.match(/(?:under|below)\s+\$?([\d,]+)/i);
+  if (upperMatch) return { max: parseFloat(upperMatch[1].replace(/,/g, "")) };
+  return null;
+}
+
+function applyPriceFilter(candidates: Product[], constraints: DetectedConstraint[]): Product[] {
+  const priceConstraint = constraints.find((c) => c.type === "price");
+  if (!priceConstraint) return candidates;
+
+  const range = parsePriceRange(priceConstraint.value);
+  if (!range) return candidates;
+
+  // 20% tolerance on each bound so near-misses aren't hard-excluded
+  const minBound = range.min != null ? range.min * 0.8 : undefined;
+  const maxBound = range.max != null ? range.max * 1.2 : undefined;
+
+  const filtered = candidates.filter((p) => {
+    if (p.price <= 0) return true; // missing price — keep rather than drop
+    if (minBound != null && p.price < minBound) return false;
+    if (maxBound != null && p.price > maxBound) return false;
+    return true;
+  });
+
+  // Never return an empty pool — fall back to unfiltered if the range is too tight
+  return filtered.length >= 5 ? filtered : candidates;
+}
+
+// ── Compact scoring representation ───────────────────────────────────────────
 // Drops fields the model doesn't need for ranking (currency, source, reviewCount)
 // and keeps only the 3 rawAttribute keys most relevant to profile matching.
 // Structural truncation only — no mid-string "…" that could confuse the model.
+// "r" is a Bayesian-adjusted rating so review volume is already baked in.
 function scoringSlimProducts(products: Product[]) {
   const SCORE_ATTR_KEYS = ["brand", "material", "features"];
   return products.map((p) => {
     const attrs: Record<string, string> = {};
     for (const key of SCORE_ATTR_KEYS) {
       const v = p.rawAttributes[key];
-      if (v) attrs[key] = v.slice(0, 50); // hard-truncate value, no trailing marker
+      if (v) attrs[key] = v.slice(0, 50);
     }
     return {
       id: p.id,
-      t: p.title.slice(0, 60),   // "t" saves tokens vs "title" across 100 products
-      p: p.price,                 // "p" for price
-      r: p.rating,                // "r" for rating
+      t: p.title.slice(0, 60),
+      p: p.price,
+      r: bayesianRating(p.rating ?? 0, p.reviewCount ?? 0), // Bayesian-adjusted
       ...(Object.keys(attrs).length > 0 ? { a: attrs } : {}),
     };
   });
@@ -83,7 +143,7 @@ async function scoreProducts(
 
 ${buildProfileSection(userProfile)}${buildConstraintSection(constraints)}
 
-Each product has fields: id, t (title), p (price), r (rating), a (key attributes).
+Each product has fields: id, t (title), p (price), r (Bayesian-adjusted rating — already accounts for review volume), a (key attributes).
 
 Scoring rules:
 - Score each product 0.0–1.0 against the user profile and constraints.
@@ -109,6 +169,8 @@ SCORE DISTRIBUTION — use the full 0.0–1.0 range:
 - Partial match (right category, wrong specific attribute): 0.40–0.69.
 - Hard constraint violation: 0.00–0.10.
 - Do NOT cluster all scores between 0.88–0.95. Spread them to reflect actual quality differences.
+
+GENDER NEUTRALITY: If 'gender' is not present in session constraints, treat men's-specific and women's-specific products as equally relevant as gender-neutral ones. Do NOT boost or penalise products based on inferred user gender. A gender-neutral query must produce a gender-balanced top-K.
 
 IMPORTANT: Output ONLY scores — no reasons, no explanations, no extra fields.
 Return valid JSON only, no markdown.
@@ -246,8 +308,9 @@ function preFilter(candidates: Product[]): Product[] {
   if (candidates.length <= MAX_SCORING_CANDIDATES) return candidates;
   return [...candidates]
     .sort((a, b) => {
-      const scoreA = (a.rating ?? 0) * Math.log((a.reviewCount ?? 0) + 1);
-      const scoreB = (b.rating ?? 0) * Math.log((b.reviewCount ?? 0) + 1);
+      // Use Bayesian-adjusted rating so a 5★/1-review item doesn't float to the top
+      const scoreA = bayesianRating(a.rating ?? 0, a.reviewCount ?? 0);
+      const scoreB = bayesianRating(b.rating ?? 0, b.reviewCount ?? 0);
       return scoreB - scoreA;
     })
     .slice(0, MAX_SCORING_CANDIDATES);
@@ -265,8 +328,10 @@ export async function runRerankerAgent(
   }
 
   const threshold = getConfidenceThreshold();
-  // Cap candidates before LLM scoring — drops weak products by heuristic
-  const scoringPool = preFilter(candidates);
+  // 1. Deterministic price filter — drop products clearly outside stated range
+  const priceFiltered = applyPriceFilter(candidates, constraints);
+  // 2. Heuristic cap — keeps top-N by Bayesian quality signal
+  const scoringPool = preFilter(priceFiltered);
 
   // Pass 1: score pre-filtered candidates
   let scoringOutput: ScoringOutput;

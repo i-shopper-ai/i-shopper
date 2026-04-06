@@ -87,10 +87,28 @@ Each product has fields: id, t (title), p (price), r (rating), a (key attributes
 
 Scoring rules:
 - Score each product 0.0–1.0 against the user profile and constraints.
-- Score reflects profile match, NOT just product quality.
+- Score reflects constraint match AND profile fit, NOT just product quality.
 - Return ALL products ordered by score descending.
 - If the highest score is below ${threshold}, set nullProduct=true with a 1-2 sentence rationale.
 - If nullProduct is false, set rationale to null.
+
+HARD CONSTRAINT VIOLATIONS — score 0.00–0.10, regardless of rating or reviews:
+- Wrong brand when a specific brand is required (e.g. brand=Abercrombie → non-Abercrombie scores ≤ 0.10).
+- Wrong material when material is specified (e.g. material=marble → non-marble scores ≤ 0.10).
+- Wrong subject when a specific named person/character is required (e.g. "Richard Nixon sculpture" → unrelated subjects score ≤ 0.10).
+- Wrong color when color is explicitly stated.
+If all products violate a hard constraint, set nullProduct=true.
+
+QUALITATIVE PRICE SIGNALS — invert the price preference:
+- If constraints contain "expensive", "luxury", "high-end", "premium", or "ridiculously expensive": rank higher-priced products HIGHER. The most expensive relevant products should score 0.85–1.0.
+- If constraints contain "cheap", "budget", "lowest", "affordable": rank lower-priced products higher (default behavior).
+
+SCORE DISTRIBUTION — use the full 0.0–1.0 range:
+- Perfect multi-constraint match: 0.90–1.00.
+- Good match with one minor miss: 0.70–0.89.
+- Partial match (right category, wrong specific attribute): 0.40–0.69.
+- Hard constraint violation: 0.00–0.10.
+- Do NOT cluster all scores between 0.88–0.95. Spread them to reflect actual quality differences.
 
 IMPORTANT: Output ONLY scores — no reasons, no explanations, no extra fields.
 Return valid JSON only, no markdown.
@@ -216,6 +234,25 @@ function heuristicRank(candidates: Product[], threshold: number): RerankerOutput
   };
 }
 
+// ── Heuristic pre-filter ──────────────────────────────────────────────────────
+// Caps the candidate pool before sending to the LLM scorer.
+// Scoring 99 items takes ~30s; scoring 25 takes ~8s.
+// Sort by a cheap quality signal (rating × log(reviews+1)) and keep top N.
+// This preserves diversity while eliminating obviously poor candidates.
+
+const MAX_SCORING_CANDIDATES = 30;
+
+function preFilter(candidates: Product[]): Product[] {
+  if (candidates.length <= MAX_SCORING_CANDIDATES) return candidates;
+  return [...candidates]
+    .sort((a, b) => {
+      const scoreA = (a.rating ?? 0) * Math.log((a.reviewCount ?? 0) + 1);
+      const scoreB = (b.rating ?? 0) * Math.log((b.reviewCount ?? 0) + 1);
+      return scoreB - scoreA;
+    })
+    .slice(0, MAX_SCORING_CANDIDATES);
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 export async function runRerankerAgent(
@@ -228,13 +265,15 @@ export async function runRerankerAgent(
   }
 
   const threshold = getConfidenceThreshold();
+  // Cap candidates before LLM scoring — drops weak products by heuristic
+  const scoringPool = preFilter(candidates);
 
-  // Pass 1: score all candidates
+  // Pass 1: score pre-filtered candidates
   let scoringOutput: ScoringOutput;
   try {
-    scoringOutput = await scoreProducts(candidates, userProfile, constraints, threshold);
+    scoringOutput = await scoreProducts(scoringPool, userProfile, constraints, threshold);
   } catch (e) {
-    console.warn(`[reranker] Scoring failed for ${candidates.length} candidates — heuristic fallback:`, e);
+    console.warn(`[reranker] Scoring failed for ${scoringPool.length} candidates — heuristic fallback:`, e);
     return heuristicRank(candidates, threshold);
   }
 
@@ -249,7 +288,7 @@ export async function runRerankerAgent(
   // Subsequent pages get their reasons generated lazily via /api/reasons
   // right before they are displayed, so we never pay for unused reasons.
   const topKIds = new Set(sorted.slice(0, PAGE_SIZE).map((s) => s.productId));
-  const topKProducts = candidates.filter((c) => topKIds.has(c.id));
+  const topKProducts = scoringPool.filter((c) => topKIds.has(c.id));
 
   let batchReasons: BatchReason[] = [];
   try {

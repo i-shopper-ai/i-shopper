@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchCandidates } from "@/lib/api/serpApi";
 import type { DetectedConstraint } from "@/lib/types/session";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export interface SearchRequestBody {
   queries: string[];

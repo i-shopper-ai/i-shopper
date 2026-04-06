@@ -24,6 +24,15 @@ Rules:
 - Detect constraints (budget, shipping, brand, material, form factor, etc.).
 - Return valid JSON only, no markdown, no explanation.
 
+CRITICAL — GENDER:
+  Never add a gender constraint (men's / women's / boys' / girls') to detectedConstraints or searchQueries unless the user's message explicitly contains a gendered word (e.g. "women's", "men's", "girls", "boys").
+  Do NOT infer gender from product category, brand, or user profile history.
+  A query like "brown running shoes" or "beige bucket hat" is gender-neutral — keep it that way.
+
+CRITICAL — BUDGET:
+  If the user's message explicitly states a price or budget (e.g. "$40–$50", "under $100", "$10,000–$15,000"), extract it as a price constraint directly. Do NOT ask a clarifying question about budget when the user has already stated one in this message.
+  The user's stated budget always overrides any budget value in their profile.
+
 Output schema:
 {
   "needsClarification": boolean,

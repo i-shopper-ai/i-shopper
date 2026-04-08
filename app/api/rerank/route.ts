@@ -4,6 +4,8 @@ import { getProfile } from "@/lib/db/kv";
 import type { Product } from "@/lib/types/product";
 import type { DetectedConstraint } from "@/lib/types/session";
 
+export const maxDuration = 90; // seconds — Bedrock Claude can be slow
+
 export interface RerankRequestBody {
   candidates: Product[];
   userId: string;

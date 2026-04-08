@@ -2,7 +2,7 @@ import { getJson } from "serpapi";
 import { randomUUID } from "crypto";
 import type { Product } from "@/lib/types/product";
 
-const NUM_PER_QUERY = 10;
+const NUM_PER_QUERY = 15;
 const DEDUP_THRESHOLD = 0.85;
 
 // ── Normalisation ────────────────────────────────────────────────────────────
@@ -131,20 +131,12 @@ async function fetchAmazon(query: string): Promise<Product[]> {
 
 /**
  * Fetch and deduplicate products for a list of search queries.
- * Uses Google Shopping per query; falls back to Amazon if fewer than 5 results.
+ * Uses Google Shopping only — firing all queries in parallel.
+ * Amazon was dropped: adding it doubled the number of simultaneous SerpAPI
+ * requests (3 queries × 2 sources = 6), which triggered rate throttling and
+ * pushed search latency from ~10s to 30+ seconds.
  */
 export async function fetchCandidates(queries: string[]): Promise<Product[]> {
-  const perQuery = await Promise.all(
-    queries.map(async (q) => {
-      // Fire both sources in parallel; merge results regardless.
-      // Avoids the sequential Google → (wait) → Amazon fallback penalty.
-      const [google, amazon] = await Promise.all([
-        fetchGoogleShopping(q),
-        fetchAmazon(q),
-      ]);
-      return [...google, ...amazon];
-    })
-  );
-
+  const perQuery = await Promise.all(queries.map(fetchGoogleShopping));
   return dedup(perQuery.flat());
 }

@@ -23,23 +23,83 @@ function buildConstraintSection(constraints: DetectedConstraint[]): string {
     : "";
 }
 
-// Compact representation for the scoring pass.
+// ── Bayesian rating ───────────────────────────────────────────────────────────
+// Smooths raw star ratings toward a 3.5-star prior weighted at 50 reviews.
+// This prevents a 5★/1-review item from outranking a 4.6★/4900-review item.
+// Example: 5★/1 review → 3.53  vs  4.6★/4900 reviews → 4.59
+const BAYES_PRIOR_RATING = 3.5;
+const BAYES_PRIOR_WEIGHT = 50;
+
+function bayesianRating(rating: number, reviewCount: number): number {
+  if (!rating) return BAYES_PRIOR_RATING;
+  return parseFloat(
+    (
+      (rating * reviewCount + BAYES_PRIOR_RATING * BAYES_PRIOR_WEIGHT) /
+      (reviewCount + BAYES_PRIOR_WEIGHT)
+    ).toFixed(2)
+  );
+}
+
+// ── Price filter ──────────────────────────────────────────────────────────────
+// Deterministic pre-filter applied before LLM scoring.
+// Drops products clearly outside a stated price range so the LLM scorer
+// doesn't need to penalise them (and can't accidentally promote them).
+
+function parsePriceRange(value: string): { min?: number; max?: number } | null {
+  // "40-50", "10000-15000", "$40–$50"
+  const rangeMatch = value.match(/([\d,]+)\s*[-–]\s*([\d,]+)/);
+  if (rangeMatch) {
+    return {
+      min: parseFloat(rangeMatch[1].replace(/,/g, "")),
+      max: parseFloat(rangeMatch[2].replace(/,/g, "")),
+    };
+  }
+  // "under $80", "under 100 dollars", "below $20"
+  const upperMatch = value.match(/(?:under|below)\s+\$?([\d,]+)/i);
+  if (upperMatch) return { max: parseFloat(upperMatch[1].replace(/,/g, "")) };
+  return null;
+}
+
+function applyPriceFilter(candidates: Product[], constraints: DetectedConstraint[]): Product[] {
+  const priceConstraint = constraints.find((c) => c.type === "price");
+  if (!priceConstraint) return candidates;
+
+  const range = parsePriceRange(priceConstraint.value);
+  if (!range) return candidates;
+
+  // 20% tolerance on each bound so near-misses aren't hard-excluded
+  const minBound = range.min != null ? range.min * 0.8 : undefined;
+  const maxBound = range.max != null ? range.max * 1.2 : undefined;
+
+  const filtered = candidates.filter((p) => {
+    if (p.price <= 0) return true; // missing price — keep rather than drop
+    if (minBound != null && p.price < minBound) return false;
+    if (maxBound != null && p.price > maxBound) return false;
+    return true;
+  });
+
+  // Never return an empty pool — fall back to unfiltered if the range is too tight
+  return filtered.length >= 5 ? filtered : candidates;
+}
+
+// ── Compact scoring representation ───────────────────────────────────────────
 // Drops fields the model doesn't need for ranking (currency, source, reviewCount)
 // and keeps only the 3 rawAttribute keys most relevant to profile matching.
 // Structural truncation only — no mid-string "…" that could confuse the model.
+// "r" is a Bayesian-adjusted rating so review volume is already baked in.
 function scoringSlimProducts(products: Product[]) {
   const SCORE_ATTR_KEYS = ["brand", "material", "features"];
   return products.map((p) => {
     const attrs: Record<string, string> = {};
     for (const key of SCORE_ATTR_KEYS) {
       const v = p.rawAttributes[key];
-      if (v) attrs[key] = v.slice(0, 50); // hard-truncate value, no trailing marker
+      if (v) attrs[key] = v.slice(0, 50);
     }
     return {
       id: p.id,
-      t: p.title.slice(0, 60),   // "t" saves tokens vs "title" across 100 products
-      p: p.price,                 // "p" for price
-      r: p.rating,                // "r" for rating
+      t: p.title.slice(0, 60),
+      p: p.price,
+      r: bayesianRating(p.rating ?? 0, p.reviewCount ?? 0), // Bayesian-adjusted
       ...(Object.keys(attrs).length > 0 ? { a: attrs } : {}),
     };
   });
@@ -83,14 +143,34 @@ async function scoreProducts(
 
 ${buildProfileSection(userProfile)}${buildConstraintSection(constraints)}
 
-Each product has fields: id, t (title), p (price), r (rating), a (key attributes).
+Each product has fields: id, t (title), p (price), r (Bayesian-adjusted rating — already accounts for review volume), a (key attributes).
 
 Scoring rules:
 - Score each product 0.0–1.0 against the user profile and constraints.
-- Score reflects profile match, NOT just product quality.
+- Score reflects constraint match AND profile fit, NOT just product quality.
 - Return ALL products ordered by score descending.
 - If the highest score is below ${threshold}, set nullProduct=true with a 1-2 sentence rationale.
 - If nullProduct is false, set rationale to null.
+
+HARD CONSTRAINT VIOLATIONS — score 0.00–0.10, regardless of rating or reviews:
+- Wrong brand when a specific brand is required (e.g. brand=Abercrombie → non-Abercrombie scores ≤ 0.10).
+- Wrong material when material is specified (e.g. material=marble → non-marble scores ≤ 0.10).
+- Wrong subject when a specific named person/character is required (e.g. "Richard Nixon sculpture" → unrelated subjects score ≤ 0.10).
+- Wrong color when color is explicitly stated.
+If all products violate a hard constraint, set nullProduct=true.
+
+QUALITATIVE PRICE SIGNALS — invert the price preference:
+- If constraints contain "expensive", "luxury", "high-end", "premium", or "ridiculously expensive": rank higher-priced products HIGHER. The most expensive relevant products should score 0.85–1.0.
+- If constraints contain "cheap", "budget", "lowest", "affordable": rank lower-priced products higher (default behavior).
+
+SCORE DISTRIBUTION — use the full 0.0–1.0 range:
+- Perfect multi-constraint match: 0.90–1.00.
+- Good match with one minor miss: 0.70–0.89.
+- Partial match (right category, wrong specific attribute): 0.40–0.69.
+- Hard constraint violation: 0.00–0.10.
+- Do NOT cluster all scores between 0.88–0.95. Spread them to reflect actual quality differences.
+
+GENDER NEUTRALITY: If 'gender' is not present in session constraints, treat men's-specific and women's-specific products as equally relevant as gender-neutral ones. Do NOT boost or penalise products based on inferred user gender. A gender-neutral query must produce a gender-balanced top-K.
 
 IMPORTANT: Output ONLY scores — no reasons, no explanations, no extra fields.
 Return valid JSON only, no markdown.
@@ -143,23 +223,20 @@ export type BatchReason = {
   matchedAttributes: string[];
 };
 
-export async function generateBatchReasons(
-  products: Product[],
+async function generateSingleReason(
+  product: Product,
   userProfile: UserProfile | null,
   constraints: DetectedConstraint[]
-): Promise<BatchReason[]> {
-  if (products.length === 0) return [];
-
+): Promise<BatchReason> {
   const { messages, model } = getAnthropicConfig("haiku");
 
-  const system = `You are a personalized shopping assistant generating recommendation reasons.
+  const system = `You are a personalized shopping assistant generating a recommendation reason.
 
 ${buildProfileSection(userProfile)}${buildConstraintSection(constraints)}
 
 Rules:
-- Generate exactly one reason per product.
-- Each reason: exactly 1 line, ≤ 15 words, profile-grounded.
-- Reference specific attributes from the user profile: priorityAttributes, budget ranges, pastSignals weights, antiPreferences.
+- Reason: exactly 1 line, ≤ 15 words, profile-grounded.
+- Reference specific attributes from the user profile: priorityAttributes, pastSignals weights, antiPreferences.
 - Do NOT use generic marketing copy ("great product", "highly rated", "top choice", etc.).
 - Do NOT hallucinate product attributes not present in rawAttributes.
 - matchedAttributes: list the profile keys that drove the reason (e.g. "price", "durability", "budget").
@@ -167,26 +244,44 @@ Rules:
 Return valid JSON only, no markdown.
 
 Output schema:
-{
-  "reasons": [{ "productId": string, "reason": string, "matchedAttributes": [string] }]
-}`;
+{ "productId": string, "reason": string, "matchedAttributes": [string] }`;
 
+  const [slim] = reasonSlimProducts([product]);
   const response = await messages.create({
     model,
-    max_tokens: 1024,
+    max_tokens: 128,
+    top_p: 0.9,
     system,
-    messages: [{
-      role: "user",
-      content: `Generate recommendation reasons for these ${products.length} products:\n\n${JSON.stringify(reasonSlimProducts(products), null, 2)}`,
-    }],
+    messages: [{ role: "user", content: JSON.stringify(slim) }],
   });
 
   const raw = response.content[0]?.type === "text" ? response.content[0].text : null;
-  if (!raw) throw new Error("Reason agent returned empty response");
+  if (!raw) throw new Error(`Reason agent returned empty response for ${product.id}`);
 
   const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  const parsed = JSON.parse(cleaned) as { reasons: BatchReason[] };
-  return parsed.reasons ?? [];
+  return JSON.parse(cleaned) as BatchReason;
+}
+
+export async function generateBatchReasons(
+  products: Product[],
+  userProfile: UserProfile | null,
+  constraints: DetectedConstraint[]
+): Promise<BatchReason[]> {
+  if (products.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    products.map((p) => generateSingleReason(p, userProfile, constraints))
+  );
+
+  return settled.map((result, i) => {
+    if (result.status === "fulfilled") return result.value;
+    console.warn(`[reranker] Reason failed for ${products[i].id}:`, result.reason);
+    return {
+      productId: products[i].id,
+      reason: `${products[i].rating ?? "N/A"}/5 stars, $${products[i].price}.`,
+      matchedAttributes: ["rating", "price"],
+    };
+  });
 }
 
 // ── Heuristic fallback ────────────────────────────────────────────────────────
@@ -216,6 +311,26 @@ function heuristicRank(candidates: Product[], threshold: number): RerankerOutput
   };
 }
 
+// ── Heuristic pre-filter ──────────────────────────────────────────────────────
+// Caps the candidate pool before sending to the LLM scorer.
+// Scoring 99 items takes ~30s; scoring 25 takes ~8s.
+// Sort by a cheap quality signal (rating × log(reviews+1)) and keep top N.
+// This preserves diversity while eliminating obviously poor candidates.
+
+const MAX_SCORING_CANDIDATES = 30;
+
+function preFilter(candidates: Product[]): Product[] {
+  if (candidates.length <= MAX_SCORING_CANDIDATES) return candidates;
+  return [...candidates]
+    .sort((a, b) => {
+      // Use Bayesian-adjusted rating so a 5★/1-review item doesn't float to the top
+      const scoreA = bayesianRating(a.rating ?? 0, a.reviewCount ?? 0);
+      const scoreB = bayesianRating(b.rating ?? 0, b.reviewCount ?? 0);
+      return scoreB - scoreA;
+    })
+    .slice(0, MAX_SCORING_CANDIDATES);
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 export async function runRerankerAgent(
@@ -228,13 +343,17 @@ export async function runRerankerAgent(
   }
 
   const threshold = getConfidenceThreshold();
+  // 1. Deterministic price filter — drop products clearly outside stated range
+  const priceFiltered = applyPriceFilter(candidates, constraints);
+  // 2. Heuristic cap — keeps top-N by Bayesian quality signal
+  const scoringPool = preFilter(priceFiltered);
 
-  // Pass 1: score all candidates
+  // Pass 1: score pre-filtered candidates
   let scoringOutput: ScoringOutput;
   try {
-    scoringOutput = await scoreProducts(candidates, userProfile, constraints, threshold);
+    scoringOutput = await scoreProducts(scoringPool, userProfile, constraints, threshold);
   } catch (e) {
-    console.warn(`[reranker] Scoring failed for ${candidates.length} candidates — heuristic fallback:`, e);
+    console.warn(`[reranker] Scoring failed for ${scoringPool.length} candidates — heuristic fallback:`, e);
     return heuristicRank(candidates, threshold);
   }
 
@@ -249,7 +368,7 @@ export async function runRerankerAgent(
   // Subsequent pages get their reasons generated lazily via /api/reasons
   // right before they are displayed, so we never pay for unused reasons.
   const topKIds = new Set(sorted.slice(0, PAGE_SIZE).map((s) => s.productId));
-  const topKProducts = candidates.filter((c) => topKIds.has(c.id));
+  const topKProducts = scoringPool.filter((c) => topKIds.has(c.id));
 
   let batchReasons: BatchReason[] = [];
   try {

@@ -14,9 +14,6 @@ export async function setProfile(profile: UserProfile): Promise<void> {
 export function createDefaultProfile(userId: string): UserProfile {
   const now = new Date().toISOString();
   const data: ProfileData = {
-    budgetRanges: {
-      default: { min: 0, max: 500 },
-    },
     priorityAttributes: [],
     antiPreferences: {
       brands: [],

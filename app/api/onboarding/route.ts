@@ -32,7 +32,6 @@ export async function POST(request: Request) {
       updatedAt: now,
       sessionCount: 0,
       profile: {
-        budgetRanges: { default: { min: 0, max: 500 } },
         priorityAttributes,
         antiPreferences: {
           brands: antiBrands,

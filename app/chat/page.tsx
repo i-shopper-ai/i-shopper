@@ -21,6 +21,9 @@ import type {
 } from "@/lib/types/session";
 import type { ProfileData } from "@/lib/types/profile";
 
+// Max judge-loop clarification rounds before committing to search.
+const MAX_JUDGE_ITERATIONS = 6;
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type ChatMsg = { role: "user" | "assistant" | "debug"; content: string };
@@ -33,6 +36,16 @@ type Phase =
   | "results"       // product cards shown, awaiting decision
   | "null_product"  // null product state shown
   | "feedback";     // feedback modal open
+
+type JudgeDialogueTurn = { question: string; answer: string };
+
+type JudgeLoopState = {
+  intent: IntentAgentOutput;
+  queryContext: string;       // joined search queries — stable context for both agents
+  dialogue: JudgeDialogueTurn[];
+  lastQuestion: string;
+  iterCount: number;
+};
 
 interface SessionData {
   sessionId: string;
@@ -127,13 +140,6 @@ function fmtStage4(
   }
 
   const diffs: string[] = [];
-
-  // Budget ranges
-  const bdBefore = profileBefore.budgetRanges?.default;
-  const bdAfter = profileAfter.budgetRanges?.default;
-  if (bdBefore && bdAfter && (bdBefore.min !== bdAfter.min || bdBefore.max !== bdAfter.max)) {
-    diffs.push(`  budget.default: $${bdBefore.min}–$${bdBefore.max} → $${bdAfter.min}–$${bdAfter.max}`);
-  }
 
   // Priority attributes
   const paAdded = (profileAfter.priorityAttributes ?? []).filter(a => !(profileBefore.priorityAttributes ?? []).includes(a));
@@ -234,6 +240,7 @@ export default function ChatPage() {
   // Session tracking
   const sessionRef = useRef<SessionData | null>(null);
   const pendingDecision = useRef<UserDecision | null>(null);
+  const judgeLoopRef = useRef<JudgeLoopState | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const feedRef = useRef<HTMLDivElement>(null);
@@ -276,9 +283,8 @@ export default function ChatPage() {
   const send = useCallback(
     async (text: string) => {
       const userText = text.trim();
-      if (!userText || phase === "thinking" || phase === "searching") return;
+      if (!userText || phase === "thinking" || phase === "searching" || phase === "reranking") return;
 
-      // Add user message to UI and history
       const userMsg: ChatMsg = { role: "user", content: userText };
       setMessages((prev) => [...prev, userMsg]);
       historyRef.current = [...historyRef.current, userMsg];
@@ -286,36 +292,92 @@ export default function ChatPage() {
       setPhase("thinking");
 
       try {
-        // ── 1. Intent agent ──────────────────────────────────────────────
-        const intent = await apiFetch<IntentAgentOutput>("/api/chat", {
-          message: userText,
-          userId,
-          clarificationCount,
-          // Send all prior user/assistant turns (debug entries are UI-only, excluded)
-          history: historyRef.current.filter((m) => m.role !== "debug").slice(0, -1),
-        });
+        let searchIntent: IntentAgentOutput;
 
-        if (testMode === true) {
-          setMessages((prev) => [...prev, { role: "debug", content: fmtStage1(intent) }]);
-        }
+        // ── Judge loop: user answered a clarifying question ──────────────
+        if (judgeLoopRef.current) {
+          const state = judgeLoopRef.current;
+          state.dialogue.push({ question: state.lastQuestion, answer: userText });
+          state.iterCount++;
 
-        if (intent.needsClarification && intent.clarifyingQuestion) {
-          const aMsg: ChatMsg = {
-            role: "assistant",
-            content: intent.clarifyingQuestion,
-          };
-          setMessages((prev) => [...prev, aMsg]);
-          historyRef.current = [...historyRef.current, aMsg];
-          setClarificationCount((c) => c + 1);
-          setPhase("idle");
-          return;
+          if (state.iterCount < MAX_JUDGE_ITERATIONS) {
+            const judge = await apiFetch<{ sufficient: boolean }>("/api/judge", {
+              query: state.queryContext,
+              userId,
+              dialogue: state.dialogue,
+            });
+
+            if (!judge.sufficient) {
+              const { question } = await apiFetch<{ question: string }>("/api/clarify", {
+                query: state.queryContext,
+                userId,
+                dialogue: state.dialogue,
+              });
+              state.lastQuestion = question;
+              const aMsg: ChatMsg = { role: "assistant", content: question };
+              setMessages((prev) => [...prev, aMsg]);
+              historyRef.current = [...historyRef.current, aMsg];
+              setPhase("idle");
+              return;
+            }
+          }
+
+          // Judge passed or max iterations reached — proceed to search
+          searchIntent = state.intent;
+          judgeLoopRef.current = null;
+
+        } else {
+          // ── Normal flow: intent agent ──────────────────────────────────
+          const intent = await apiFetch<IntentAgentOutput>("/api/chat", {
+            message: userText,
+            userId,
+            clarificationCount,
+            history: historyRef.current.filter((m) => m.role !== "debug").slice(0, -1),
+          });
+
+          if (testMode === true) {
+            setMessages((prev) => [...prev, { role: "debug", content: fmtStage1(intent) }]);
+          }
+
+          if (intent.needsClarification && intent.clarifyingQuestion) {
+            const aMsg: ChatMsg = { role: "assistant", content: intent.clarifyingQuestion };
+            setMessages((prev) => [...prev, aMsg]);
+            historyRef.current = [...historyRef.current, aMsg];
+            setClarificationCount((c) => c + 1);
+            setPhase("idle");
+            return;
+          }
+
+          // ── 1b. Start judge loop ─────────────────────────────────────
+          const queryContext = intent.searchQueries.join("; ");
+          const judge = await apiFetch<{ sufficient: boolean }>("/api/judge", {
+            query: queryContext,
+            userId,
+            dialogue: [],
+          });
+
+          if (!judge.sufficient) {
+            const { question } = await apiFetch<{ question: string }>("/api/clarify", {
+              query: queryContext,
+              userId,
+              dialogue: [],
+            });
+            judgeLoopRef.current = { intent, queryContext, dialogue: [], lastQuestion: question, iterCount: 0 };
+            const aMsg: ChatMsg = { role: "assistant", content: question };
+            setMessages((prev) => [...prev, aMsg]);
+            historyRef.current = [...historyRef.current, aMsg];
+            setPhase("idle");
+            return;
+          }
+
+          searchIntent = intent;
         }
 
         // ── 2. Search ────────────────────────────────────────────────────
         setPhase("searching");
         const { candidates: pool } = await apiFetch<{ candidates: Product[] }>(
           "/api/search",
-          { queries: intent.searchQueries, constraints: intent.detectedConstraints }
+          { queries: searchIntent.searchQueries, constraints: searchIntent.detectedConstraints }
         );
         if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage2(pool) }]);
@@ -326,14 +388,14 @@ export default function ChatPage() {
         const reranked = await apiFetch<RerankerOutput>("/api/rerank", {
           candidates: pool,
           userId,
-          constraints: intent.detectedConstraints,
+          constraints: searchIntent.detectedConstraints,
         });
         if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage3(reranked, pool) }]);
         }
 
         setCandidates(pool);
-        setConstraints(intent.detectedConstraints);
+        setConstraints(searchIntent.detectedConstraints);
         setRankedResults(reranked.results);
         setNullProduct(reranked.nullProduct);
         setNullRationale(reranked.rationale ?? null);
@@ -348,21 +410,17 @@ export default function ChatPage() {
         // ── 5. Initialise session record ─────────────────────────────────
         const sessionId = crypto.randomUUID();
 
-        // Build clarifications array from history pairs (debug entries excluded)
         const clarifications: { question: string; answer: string }[] = [];
         const hist = historyRef.current.filter((m) => m.role !== "debug");
         for (let i = 0; i < hist.length - 1; i++) {
           if (hist[i].role === "assistant" && hist[i + 1].role === "user") {
-            clarifications.push({
-              question: hist[i].content,
-              answer: hist[i + 1].content,
-            });
+            clarifications.push({ question: hist[i].content, answer: hist[i + 1].content });
           }
         }
 
         sessionRef.current = {
           sessionId,
-          searchQueries: intent.searchQueries,
+          searchQueries: searchIntent.searchQueries,
           candidatePool: pool,
           rankedResults: reranked.results,
           profileBefore: profileBefore ?? null,
@@ -377,20 +435,11 @@ export default function ChatPage() {
           timestamp: new Date().toISOString(),
           intent: userText,
           clarifications,
-          generatedQueries: intent.searchQueries,
-          candidatePool: pool.map((p) => ({
-            productId: p.id,
-            id: p.id,
-            title: p.title,
-            price: p.price,
-          })),
+          generatedQueries: searchIntent.searchQueries,
+          candidatePool: pool.map((p) => ({ productId: p.id, id: p.id, title: p.title, price: p.price })),
           rankedResults: reranked.results
             .filter((r) => r.reason !== null)
-            .map((r) => ({
-              productId: r.productId,
-              score: r.score,
-              reason: r.reason as string,
-            })),
+            .map((r) => ({ productId: r.productId, score: r.score, reason: r.reason as string })),
           userDecision: null,
           acceptedProductId: null,
           feedbackTags: [],
@@ -409,7 +458,7 @@ export default function ChatPage() {
           role: "assistant",
           content: reranked.nullProduct
             ? "I couldn't find products that match your needs confidently enough to recommend."
-            : `Here are my top picks for you:`,
+            : "Here are my top picks for you:",
         };
         setMessages((prev) => [...prev, aMsg]);
         historyRef.current = [...historyRef.current, aMsg];
@@ -593,7 +642,8 @@ export default function ChatPage() {
     historyRef.current = [];
     sessionRef.current = null;
     pendingDecision.current = null;
-    setMessages(followUpMsg ? [followUpMsg] : []);
+    judgeLoopRef.current = null;
+    if (followUpMsg) setMessages((prev) => [...prev, followUpMsg]);
   }
 
   // ── Suggest similar: page through already-ranked candidates ─────────────

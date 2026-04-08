@@ -12,10 +12,9 @@ You will receive:
 Update the profile following these rules exactly:
 1. ACCEPT decision → For each attribute matched by the accepted product, find it in pastSignals and increase weight by 0.1 (max 2.0). If the attribute is not yet in pastSignals, add it with weight 1.1 and source "accepted_product".
 2. REJECT_ALL decision → Add the rejected products' brands to antiPreferences.brands, materials to antiPreferences.materials, and formFactors to antiPreferences.formFactors (deduplicate). Only add attributes that appear in rawAttributes.
-3. SUGGEST_SIMILAR decision → If feedback tags include "price" or "too_expensive", lower the relevant budget range max by 15%. If feedback tags include "wrong_spec" or "wrong_brand", add those to antiPreferences.
+3. SUGGEST_SIMILAR decision → If feedback tags include "wrong_spec" or "wrong_brand", add those to antiPreferences.
 4. Profile updates are additive only. Never remove existing preferences.
-5. Budget range values must remain non-negative integers.
-6. Return ONLY the updated profile JSON matching the exact schema of the input profile. No markdown, no explanation.`;
+5. Return ONLY the updated profile JSON matching the exact schema of the input profile. No markdown, no explanation.`;
 
 function buildUserMessage(
   profileBefore: ProfileData,
@@ -83,18 +82,6 @@ export async function runProfileAgent(
 
   const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   const updated = JSON.parse(cleaned) as ProfileData;
-
-  // Ensure budget values are non-negative integers (guard against model drift)
-  for (const key of Object.keys(updated.budgetRanges)) {
-    updated.budgetRanges[key].min = Math.max(
-      0,
-      Math.round(updated.budgetRanges[key].min)
-    );
-    updated.budgetRanges[key].max = Math.max(
-      0,
-      Math.round(updated.budgetRanges[key].max)
-    );
-  }
 
   // Cap pastSignal weights at 2.0
   for (const signal of updated.pastSignals) {

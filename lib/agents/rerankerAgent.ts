@@ -223,23 +223,20 @@ export type BatchReason = {
   matchedAttributes: string[];
 };
 
-export async function generateBatchReasons(
-  products: Product[],
+async function generateSingleReason(
+  product: Product,
   userProfile: UserProfile | null,
   constraints: DetectedConstraint[]
-): Promise<BatchReason[]> {
-  if (products.length === 0) return [];
-
+): Promise<BatchReason> {
   const { messages, model } = getAnthropicConfig("haiku");
 
-  const system = `You are a personalized shopping assistant generating recommendation reasons.
+  const system = `You are a personalized shopping assistant generating a recommendation reason.
 
 ${buildProfileSection(userProfile)}${buildConstraintSection(constraints)}
 
 Rules:
-- Generate exactly one reason per product.
-- Each reason: exactly 1 line, ≤ 15 words, profile-grounded.
-- Reference specific attributes from the user profile: priorityAttributes, budget ranges, pastSignals weights, antiPreferences.
+- Reason: exactly 1 line, ≤ 15 words, profile-grounded.
+- Reference specific attributes from the user profile: priorityAttributes, pastSignals weights, antiPreferences.
 - Do NOT use generic marketing copy ("great product", "highly rated", "top choice", etc.).
 - Do NOT hallucinate product attributes not present in rawAttributes.
 - matchedAttributes: list the profile keys that drove the reason (e.g. "price", "durability", "budget").
@@ -247,26 +244,44 @@ Rules:
 Return valid JSON only, no markdown.
 
 Output schema:
-{
-  "reasons": [{ "productId": string, "reason": string, "matchedAttributes": [string] }]
-}`;
+{ "productId": string, "reason": string, "matchedAttributes": [string] }`;
 
+  const [slim] = reasonSlimProducts([product]);
   const response = await messages.create({
     model,
-    max_tokens: 1024,
+    max_tokens: 128,
+    top_p: 0.9,
     system,
-    messages: [{
-      role: "user",
-      content: `Generate recommendation reasons for these ${products.length} products:\n\n${JSON.stringify(reasonSlimProducts(products), null, 2)}`,
-    }],
+    messages: [{ role: "user", content: JSON.stringify(slim) }],
   });
 
   const raw = response.content[0]?.type === "text" ? response.content[0].text : null;
-  if (!raw) throw new Error("Reason agent returned empty response");
+  if (!raw) throw new Error(`Reason agent returned empty response for ${product.id}`);
 
   const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  const parsed = JSON.parse(cleaned) as { reasons: BatchReason[] };
-  return parsed.reasons ?? [];
+  return JSON.parse(cleaned) as BatchReason;
+}
+
+export async function generateBatchReasons(
+  products: Product[],
+  userProfile: UserProfile | null,
+  constraints: DetectedConstraint[]
+): Promise<BatchReason[]> {
+  if (products.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    products.map((p) => generateSingleReason(p, userProfile, constraints))
+  );
+
+  return settled.map((result, i) => {
+    if (result.status === "fulfilled") return result.value;
+    console.warn(`[reranker] Reason failed for ${products[i].id}:`, result.reason);
+    return {
+      productId: products[i].id,
+      reason: `${products[i].rating ?? "N/A"}/5 stars, $${products[i].price}.`,
+      matchedAttributes: ["rating", "price"],
+    };
+  });
 }
 
 // ── Heuristic fallback ────────────────────────────────────────────────────────

@@ -101,10 +101,6 @@ const PROFILE_PRICE_FOCUSED: UserProfile = {
   updatedAt: "2026-01-01T00:00:00Z",
   sessionCount: 2,
   profile: {
-    budgetRanges: {
-      default: { min: 0, max: 150 },
-      electronics: { min: 0, max: 200 },
-    },
     priorityAttributes: ["price", "durability"],
     antiPreferences: {
       brands: ["BrandX"],
@@ -557,7 +553,6 @@ async function runStage4(
 
   // Build a synthetic profile to update (use scenario profile or a blank one)
   const profileBefore: ProfileData = scenario.userProfile?.profile ?? {
-    budgetRanges: { default: { min: 0, max: 200 } },
     priorityAttributes: ["price"],
     antiPreferences: { brands: ["ExcludedBrand"], materials: [], formFactors: [] },
     pastSignals: [{ attribute: "price", weight: 1.1, source: "accepted_product" }],
@@ -634,18 +629,6 @@ async function runStage4(
       : `over-weight: ${overweight.map((s) => `${s.attribute}=${s.weight}`).join(", ")}`,
   ));
 
-  // Budget values are non-negative integers
-  const badBudgets = Object.entries(profileAfter.budgetRanges).filter(
-    ([, r]) => r.min < 0 || r.max < 0 || !Number.isInteger(r.min) || !Number.isInteger(r.max),
-  );
-  checks.push(check(
-    "budget_values_non_negative_integers",
-    badBudgets.length === 0,
-    badBudgets.length === 0
-      ? "all budget ranges valid"
-      : `invalid: ${badBudgets.map(([k, r]) => `${k}:[${r.min},${r.max}]`).join(", ")}`,
-  ));
-
   // Prior antiPreferences not removed
   const priorBrands = new Set(profileBefore.antiPreferences.brands);
   const afterBrands = new Set(profileAfter.antiPreferences.brands);
@@ -667,15 +650,6 @@ async function runStage4(
       "accept_added_or_updated_signals",
       boostedSignals.length > 0,
       `${boostedSignals.length} accepted_product signals present`,
-    ));
-  }
-  if (scenario.profileDecision === "suggest_similar") {
-    const defaultBefore = profileBefore.budgetRanges.default.max;
-    const defaultAfter = profileAfter.budgetRanges.default.max;
-    checks.push(warn(
-      "suggest_similar_lowered_budget",
-      defaultAfter < defaultBefore,
-      `budget.default.max: ${defaultBefore} → ${defaultAfter} (expected decrease)`,
     ));
   }
   if (scenario.profileDecision === "reject_all") {
@@ -700,17 +674,15 @@ async function runStage4(
     stage: "Stage 4 — Profile Agent",
     durationMs: ms,
     inputSummary: `decision=${scenario.profileDecision}, accepted=${acceptedProduct?.title?.slice(0, 40) ?? "none"}, feedbackTags=${JSON.stringify(feedbackTags)}`,
-    outputSummary: `+${newSignals.length} signals, ${changedSignals.length} weights changed, budget.default: ${profileBefore.budgetRanges.default.max} → ${profileAfter.budgetRanges.default.max}`,
+    outputSummary: `+${newSignals.length} signals, ${changedSignals.length} weights changed`,
     output: {
       profileBefore: {
         pastSignalsCount: profileBefore.pastSignals.length,
-        budgetDefault: profileBefore.budgetRanges.default,
         antiPreferenceBrands: profileBefore.antiPreferences.brands,
       },
       profileAfter: {
         pastSignalsCount: profileAfter.pastSignals.length,
         pastSignals: profileAfter.pastSignals,
-        budgetDefault: profileAfter.budgetRanges.default,
         antiPreferenceBrands: profileAfter.antiPreferences.brands,
       },
       delta: {

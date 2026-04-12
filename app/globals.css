@@ -1199,6 +1199,75 @@ button { font-family: inherit; }
 }
 .apPredShop:hover { background: #1d4ed8; transform: translateY(-1px); }
 
+/* Provider cards (permission phase) */
+.apProviderList { display: flex; flex-direction: column; gap: 10px; }
+.apProviderCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 13px;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.apProviderCard.connected {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.apProviderLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.apProviderIcon { flex-shrink: 0; display: flex; align-items: center; }
+.apProviderName {
+  font-size: 15px;
+  font-weight: 700;
+  color: #18181b;
+  margin: 0;
+}
+.apProviderStatus {
+  font-size: 13px;
+  color: #71717a;
+  margin: 2px 0 0;
+}
+.apProviderStatus.connected { color: #16a34a; font-weight: 600; }
+.apProviderConnect {
+  padding: 8px 16px;
+  background: #fff;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #18181b;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.apProviderConnect:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+}
+.apProviderUse {
+  padding: 8px 16px;
+  background: #2563eb;
+  border: none;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: background 0.12s, transform 0.1s;
+}
+.apProviderUse:hover { background: #1d4ed8; transform: translateY(-1px); }
+
 /* Connected banner */
 .apConnectedBanner {
   display: flex;

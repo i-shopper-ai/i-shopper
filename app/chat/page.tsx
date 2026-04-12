@@ -337,14 +337,14 @@ export default function ChatPage() {
       .catch(() => setReady(true)); // true network failure → still allow chat
   }, [router]);
 
-  // Auto-reopen autopilot panel after Google OAuth redirect
+  // Auto-reopen autopilot panel after OAuth redirect (Google or Microsoft)
   useEffect(() => {
     const ap = searchParams.get("autopilot");
     if (ap === "connected" || ap === "denied" || ap === "error") {
       setAutopilotOpen(true);
-      // Clean the URL without triggering a navigation
       const url = new URL(window.location.href);
       url.searchParams.delete("autopilot");
+      url.searchParams.delete("provider");
       window.history.replaceState(null, "", url.toString());
     }
   }, [searchParams]);

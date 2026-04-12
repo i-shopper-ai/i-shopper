@@ -3,38 +3,13 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-const CATEGORIES = [
-  "Electronics",
-  "Clothing & Shoes",
-  "Home & Kitchen",
-  "Sports & Outdoors",
-  "Books & Media",
-  "Health & Beauty",
-  "Toys & Games",
-  "Garden & Tools",
-];
+const PRIORITY_OPTIONS = [
+  { value: "quality", label: "Quality", sub: "Long-lasting, well-made products" },
+  { value: "brand", label: "Brand", sub: "Trusted names I know and like" },
+  { value: "value for money", label: "Value for Money", sub: "Best bang for the buck" },
+] as const;
 
-const PRIORITY_ATTRS = [
-  { value: "durability", label: "Durability" },
-  { value: "price", label: "Price" },
-  { value: "brand", label: "Brand" },
-  { value: "eco", label: "Eco-friendly" },
-  { value: "reviews", label: "Reviews" },
-  { value: "speed", label: "Speed" },
-];
-
-const ANTI_BRANDS = [
-  "Nike",
-  "Adidas",
-  "Amazon Basics",
-  "Apple",
-  "Samsung",
-  "H&M",
-  "Zara",
-  "Shein",
-];
-
-const ANTI_MATERIALS = ["plastic", "synthetic", "leather", "polyester", "metal"];
+type PriorityOption = (typeof PRIORITY_OPTIONS)[number]["value"];
 
 const TOTAL_CARDS = 4;
 
@@ -46,36 +21,30 @@ const CARD_META = [
   },
   {
     step: "STEP 2 OF 4",
-    title: "What do you shop for?",
-    sub: "Select all categories that interest you.",
+    title: "What's your #1 shopping priority?",
+    sub: "Pick one — this shapes every recommendation.",
   },
   {
     step: "STEP 3 OF 4",
-    title: "What matters most to you?",
-    sub: "Choose your top priorities when comparing products.",
+    title: "What's your monthly shopping budget?",
+    sub: "Optional — helps us suggest the right price range.",
   },
   {
     step: "STEP 4 OF 4",
     title: "Anything you want to avoid?",
-    sub: "We'll filter these out from your recommendations.",
+    sub: "Optional — brands, materials, styles, anything.",
   },
 ];
-
-function toggle(arr: string[], val: string): string[] {
-  return arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val];
-}
 
 export default function OnboardingPage() {
   const router = useRouter();
   const [card, setCard] = useState(0);
   const [name, setName] = useState("");
-  const [categories, setCategories] = useState<string[]>([]);
-  const [priorityAttrs, setPriorityAttrs] = useState<string[]>([]);
-  const [antiBrands, setAntiBrands] = useState<string[]>([]);
-  const [antiMaterials, setAntiMaterials] = useState<string[]>([]);
+  const [priority, setPriority] = useState<PriorityOption | null>(null);
+  const [budget, setBudget] = useState("");
+  const [avoidText, setAvoidText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Touch / swipe tracking
   const touchStartX = useRef(0);
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -100,7 +69,6 @@ export default function OnboardingPage() {
     if (card < TOTAL_CARDS - 1) {
       setCard((c) => c + 1);
     } else {
-      // User skipped final card — mark onboarding as seen and go to chat
       localStorage.setItem("hasSeenOnboarding", "1");
       router.push("/chat");
     }
@@ -110,17 +78,18 @@ export default function OnboardingPage() {
     setSubmitting(true);
     const userId = localStorage.getItem("userId")!;
 
+    if (name.trim()) localStorage.setItem("userName", name.trim());
+
     if (!skipAll) {
-      if (name.trim()) localStorage.setItem("userName", name.trim());
       await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
-          categories,
-          priorityAttributes: priorityAttrs,
-          antiBrands,
-          antiMaterials,
+          user_name: name.trim() || null,
+          prioritized_property: priority,
+          monthly_budget: budget.trim() || null,
+          avoid_to_show: avoidText.trim() || null,
         }),
       });
     }
@@ -131,6 +100,9 @@ export default function OnboardingPage() {
 
   const meta = CARD_META[card];
   const progress = ((card + 1) / TOTAL_CARDS) * 100;
+
+  // Q2 requires a selection; Q3 and Q4 are optional so Next always enabled
+  const nextDisabled = submitting || (card === 1 && priority === null);
 
   return (
     <div
@@ -163,72 +135,59 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Card 2: Categories */}
+        {/* Card 2: Priority (single choice) */}
         {card === 1 && (
-          <div className="obOptionGrid">
-            {CATEGORIES.map((cat) => (
+          <div className="obPriorityGrid">
+            {PRIORITY_OPTIONS.map((opt) => (
               <button
-                key={cat}
-                className={`obOption${categories.includes(cat) ? " on" : ""}`}
-                onClick={() => setCategories(toggle(categories, cat))}
+                key={opt.value}
+                className={`obPriorityBtn${priority === opt.value ? " on" : ""}`}
+                onClick={() => setPriority(opt.value)}
               >
-                {cat}
+                <span className="obPriorityLabel">{opt.label}</span>
+                <span className="obPrioritySub">{opt.sub}</span>
               </button>
             ))}
           </div>
         )}
 
-        {/* Card 3: Priority attributes */}
+        {/* Card 3: Monthly budget (optional) */}
         {card === 2 && (
-          <div className="obChipGrid">
-            {PRIORITY_ATTRS.map((attr) => (
-              <button
-                key={attr.value}
-                className={`obChip${priorityAttrs.includes(attr.value) ? " on" : ""}`}
-                onClick={() => setPriorityAttrs(toggle(priorityAttrs, attr.value))}
-              >
-                {attr.label}
-              </button>
-            ))}
+          <div className="obNameWrap">
+            <input
+              className="obNameInput"
+              type="text"
+              placeholder="e.g. $300, around $500/month"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") advance(); }}
+              autoFocus
+              maxLength={60}
+            />
           </div>
         )}
 
-        {/* Card 4: Anti-preferences */}
+        {/* Card 4: Avoid (optional free text) */}
         {card === 3 && (
-          <>
-            <p className="obLabel">BRANDS TO AVOID</p>
-            <div className="obChipGrid">
-              {ANTI_BRANDS.map((brand) => (
-                <button
-                  key={brand}
-                  className={`obChip${antiBrands.includes(brand) ? " on" : ""}`}
-                  onClick={() => setAntiBrands(toggle(antiBrands, brand))}
-                >
-                  {brand}
-                </button>
-              ))}
-            </div>
-
-            <p className="obLabel">MATERIALS TO AVOID</p>
-            <div className="obChipGrid">
-              {ANTI_MATERIALS.map((mat) => (
-                <button
-                  key={mat}
-                  className={`obChip${antiMaterials.includes(mat) ? " on" : ""}`}
-                  onClick={() => setAntiMaterials(toggle(antiMaterials, mat))}
-                >
-                  {mat}
-                </button>
-              ))}
-            </div>
-          </>
+          <div className="obAvoidWrap">
+            <textarea
+              className="obAvoidInput"
+              placeholder="e.g. fast fashion brands, plastic materials, anything from Shein…"
+              value={avoidText}
+              onChange={(e) => setAvoidText(e.target.value)}
+              autoFocus
+              maxLength={300}
+              rows={4}
+            />
+            <p className="obAvoidHint">{avoidText.length}/300</p>
+          </div>
         )}
 
         <div className="obFooter">
           <button className="btnObSkip" onClick={skip}>
             {card < TOTAL_CARDS - 1 ? "Skip" : "Skip & finish"}
           </button>
-          <button className="btnObNext" onClick={advance} disabled={submitting}>
+          <button className="btnObNext" onClick={advance} disabled={nextDisabled}>
             {card < TOTAL_CARDS - 1 ? "Next →" : submitting ? "Saving…" : "Done"}
           </button>
         </div>

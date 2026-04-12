@@ -11,6 +11,13 @@ export type AntiPreferences = {
 };
 
 export type ProfileData = {
+  // ── Onboarding-collected fields ──────────────────────────────────────────
+  user_name?: string;
+  prioritized_property?: "quality" | "brand" | "value for money";
+  monthly_budget?: string;   // e.g. "$500", "around $200/month"
+  avoid_to_show?: string;    // free-text: things the user wants excluded
+
+  // ── AI-maintained fields (updated after each session) ────────────────────
   priorityAttributes: string[];
   antiPreferences: AntiPreferences;
   pastSignals: PastSignal[];

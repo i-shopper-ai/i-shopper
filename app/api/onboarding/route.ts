@@ -4,22 +4,16 @@ import type { UserProfile } from "@/lib/types/profile";
 
 export interface OnboardingRequestBody {
   userId: string;
-  categories: string[];
-  priorityAttributes: string[];
-  antiBrands: string[];
-  antiMaterials: string[];
+  user_name: string | null;
+  prioritized_property: "quality" | "brand" | "value for money" | null;
+  monthly_budget: string | null;
+  avoid_to_show: string | null;
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as OnboardingRequestBody;
-    const {
-      userId,
-      categories = [],
-      priorityAttributes = [],
-      antiBrands = [],
-      antiMaterials = [],
-    } = body;
+    const { userId, user_name, prioritized_property, monthly_budget, avoid_to_show } = body;
 
     if (!userId?.trim()) {
       return NextResponse.json({ error: "userId is required" }, { status: 400 });
@@ -32,18 +26,13 @@ export async function POST(request: Request) {
       updatedAt: now,
       sessionCount: 0,
       profile: {
-        priorityAttributes,
-        antiPreferences: {
-          brands: antiBrands,
-          materials: antiMaterials,
-          formFactors: [],
-        },
-        // Encode selected categories as past signals with neutral weight
-        pastSignals: categories.map((cat) => ({
-          attribute: cat.toLowerCase().replace(/[^a-z0-9]/g, "_"),
-          weight: 1.0,
-          source: "feedback" as const,
-        })),
+        ...(user_name && { user_name }),
+        ...(prioritized_property && { prioritized_property }),
+        ...(monthly_budget && { monthly_budget }),
+        ...(avoid_to_show && { avoid_to_show }),
+        priorityAttributes: [],
+        antiPreferences: { brands: [], materials: [], formFactors: [] },
+        pastSignals: [],
       },
     };
 

@@ -801,6 +801,28 @@ button { font-family: inherit; }
 }
 .obNameInput:focus { border-color: #2563eb; }
 .obNameInput::placeholder { color: #a1a1aa; }
+.obPriorityGrid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 26px; }
+.obPriorityBtn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 14px 18px; border: 2px solid #e4e4e7; border-radius: 12px;
+  background: #fff; cursor: pointer; text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.obPriorityBtn:hover { border-color: #93c5fd; }
+.obPriorityBtn.on { border-color: #2563eb; background: #eff6ff; }
+.obPriorityLabel { font-size: 15px; font-weight: 600; color: #18181b; }
+.obPriorityBtn.on .obPriorityLabel { color: #1d4ed8; }
+.obPrioritySub { font-size: 13px; color: #71717a; }
+.obAvoidWrap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 26px; }
+.obAvoidInput {
+  width: 100%; padding: 12px 14px; font-size: 14px; font-family: inherit;
+  border: 2px solid #e4e4e7; border-radius: 12px; resize: vertical;
+  outline: none; transition: border-color 0.15s; line-height: 1.5;
+  box-sizing: border-box;
+}
+.obAvoidInput:focus { border-color: #2563eb; }
+.obAvoidInput::placeholder { color: #a1a1aa; }
+.obAvoidHint { font-size: 12px; color: #a1a1aa; text-align: right; margin: 0; }
 .obChipGrid { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 26px; }
 .obChip {
   padding: 9px 18px; border: 2px solid #e4e4e7;

@@ -8,6 +8,9 @@ import { ConstraintChip } from "@/app/components/ConstraintChip";
 import { DecisionButtons } from "@/app/components/DecisionButtons";
 import { FeedbackModal } from "@/app/components/FeedbackModal";
 import { NullProductState } from "@/app/components/NullProductState";
+import { PipelineProgress } from "@/app/components/PipelineProgress";
+import type { PipelinePhase } from "@/app/components/PipelineProgress";
+import { MatchScoreChart } from "@/app/components/MatchScoreChart";
 
 import type { Product, RankedProduct, RerankerOutput } from "@/lib/types/product";
 import { PAGE_SIZE } from "@/lib/agents/rerankerAgent";
@@ -67,6 +70,53 @@ async function apiFetch<T>(url: string, body: unknown): Promise<T> {
   });
   if (!res.ok) throw new Error(`${url} returned ${res.status}`);
   return res.json() as Promise<T>;
+}
+
+/**
+ * Streaming search via SSE: fires `onPreview` with thumbnail URLs as each
+ * query resolves, then resolves with the full candidate list.
+ */
+async function fetchSearchStreaming(
+  queries: string[],
+  constraints: DetectedConstraint[],
+  onPreview: (thumbnails: string[]) => void
+): Promise<Product[]> {
+  const res = await fetch("/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queries, constraints, stream: true }),
+  });
+  if (!res.ok || !res.body) throw new Error(`/api/search returned ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let candidates: Product[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n\n");
+    buf = lines.pop() ?? "";
+    for (const chunk of lines) {
+      const line = chunk.trim();
+      if (!line.startsWith("data:")) continue;
+      try {
+        const msg = JSON.parse(line.slice(5)) as {
+          type: string;
+          thumbnails?: string[];
+          candidates?: Product[];
+        };
+        if (msg.type === "preview" && msg.thumbnails) {
+          onPreview(msg.thumbnails);
+        } else if (msg.type === "done" && msg.candidates) {
+          candidates = msg.candidates;
+        }
+      } catch { /* malformed chunk — skip */ }
+    }
+  }
+  return candidates;
 }
 
 // ── Test-mode debug formatters ────────────────────────────────────────────────
@@ -243,6 +293,15 @@ export default function ChatPage() {
   const judgeLoopRef = useRef<JudgeLoopState | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  // Extra context surfaced to the pipeline progress indicator
+  const [loadingContext, setLoadingContext] = useState<{
+    queries?: string[];
+    candidateCount?: number;
+    searchThumbnails?: string[];
+  }>({});
+
+  const [userName, setUserName] = useState<string>("");
+
   const feedRef = useRef<HTMLDivElement>(null);
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -254,6 +313,8 @@ export default function ChatPage() {
       localStorage.setItem("userId", id);
     }
     setUserId(id);
+    const storedName = localStorage.getItem("userName");
+    if (storedName) setUserName(storedName);
 
     const hasSeenOnboarding = localStorage.getItem("hasSeenOnboarding");
 
@@ -289,6 +350,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, userMsg]);
       historyRef.current = [...historyRef.current, userMsg];
       setInput("");
+      setLoadingContext({});
       setPhase("thinking");
 
       try {
@@ -374,16 +436,24 @@ export default function ChatPage() {
         }
 
         // ── 2. Search ────────────────────────────────────────────────────
+        setLoadingContext({ queries: searchIntent.searchQueries });
         setPhase("searching");
-        const { candidates: pool } = await apiFetch<{ candidates: Product[] }>(
-          "/api/search",
-          { queries: searchIntent.searchQueries, constraints: searchIntent.detectedConstraints }
+        const pool = await fetchSearchStreaming(
+          searchIntent.searchQueries,
+          searchIntent.detectedConstraints,
+          (thumbnails) => {
+            setLoadingContext((prev) => ({
+              ...prev,
+              searchThumbnails: [...(prev.searchThumbnails ?? []), ...thumbnails].slice(0, 12),
+            }));
+          }
         );
         if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage2(pool) }]);
         }
 
         // ── 3. Rerank ────────────────────────────────────────────────────
+        setLoadingContext({ candidateCount: pool.length });
         setPhase("reranking");
         const reranked = await apiFetch<RerankerOutput>("/api/rerank", {
           candidates: pool,
@@ -479,15 +549,11 @@ export default function ChatPage() {
 
   // ── Decision handling ─────────────────────────────────────────────────────
 
-  function onDecide(decision: UserDecision) {
-    pendingDecision.current = decision;
-    setPhase("feedback");
-    setFeedbackOpen(true);
-  }
-
-  async function onFeedbackDone(tags: FeedbackTag[], text: string) {
-    setFeedbackOpen(false);
-    const decision = pendingDecision.current!;
+  /**
+   * Core logic for any decision: fire profile update + handle aftermath.
+   * Shared by direct (no-modal) accept/reject path and the modal suggest_similar path.
+   */
+  async function processDecision(decision: UserDecision, tags: FeedbackTag[], text: string) {
     const session = sessionRef.current!;
 
     const acceptedProduct =
@@ -497,9 +563,7 @@ export default function ChatPage() {
 
     const rejectedProducts =
       decision === "reject_all"
-        ? candidates.filter((c) =>
-            rankedResults.some((r) => r.productId === c.id)
-          )
+        ? candidates.filter((c) => rankedResults.some((r) => r.productId === c.id))
         : [];
 
     if (testMode === true) {
@@ -563,68 +627,29 @@ export default function ChatPage() {
     resetSession({ role: "assistant", content: followUpContent });
   }
 
-  function onFeedbackSkip() {
-    setFeedbackOpen(false);
-    const decision = pendingDecision.current!;
-    const session = sessionRef.current!;
-
-    if (testMode === true) {
-      apiFetch<{ profile: { profile: ProfileData } }>("/api/profile/update", {
-        userId,
-        sessionId: session.sessionId,
-        decision,
-        acceptedProduct: null,
-        rejectedProducts: [],
-        feedbackTags: [],
-        feedbackText: null,
-      })
-        .then(({ profile: updatedProfile }) => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "debug",
-              content: fmtStage4(
-                decision,
-                null,
-                [],
-                [],
-                "",
-                session.profileBefore,
-                updatedProfile.profile
-              ),
-            },
-          ]);
-        })
-        .catch((err) => {
-          console.error("Profile update failed:", err);
-          setMessages((prev) => [
-            ...prev,
-            { role: "debug", content: "Stage 4 — Profile Update\nFailed: " + String(err) },
-          ]);
-        });
-    } else {
-      apiFetch("/api/profile/update", {
-        userId,
-        sessionId: session.sessionId,
-        decision,
-        acceptedProduct: null,
-        rejectedProducts: [],
-        feedbackTags: [],
-        feedbackText: null,
-      }).catch(console.error);
-    }
+  function onDecide(decision: UserDecision) {
+    pendingDecision.current = decision;
+    // Move to "feedback" phase immediately so decision buttons hide and
+    // product cards stay visible — no modal is opened for accept/reject_all.
+    setPhase("feedback");
 
     if (decision === "suggest_similar") {
-      showNextPage().catch(console.error);
+      setFeedbackOpen(true);
       return;
     }
 
-    const followUpContent =
-      decision === "accept"
-        ? `Great choice! What else can I help you find?`
-        : `Noted. What else can I help you find?`;
+    // accept / reject_all: skip the feedback modal entirely
+    void processDecision(decision, [], "");
+  }
 
-    resetSession({ role: "assistant", content: followUpContent });
+  async function onFeedbackDone(tags: FeedbackTag[], text: string) {
+    setFeedbackOpen(false);
+    await processDecision(pendingDecision.current!, tags, text);
+  }
+
+  function onFeedbackSkip() {
+    setFeedbackOpen(false);
+    void processDecision(pendingDecision.current!, [], "");
   }
 
   function resetSession(followUpMsg?: ChatMsg) {
@@ -714,13 +739,22 @@ export default function ChatPage() {
     setConstraints(updated);
 
     if (!sessionRef.current) return;
+    setLoadingContext({ queries: sessionRef.current.searchQueries });
     setPhase("searching");
 
     try {
-      const { candidates: pool } = await apiFetch<{ candidates: Product[] }>(
-        "/api/search",
-        { queries: sessionRef.current.searchQueries, constraints: updated }
+      const pool = await fetchSearchStreaming(
+        sessionRef.current.searchQueries,
+        updated,
+        (thumbnails) => {
+          setLoadingContext((prev) => ({
+            ...prev,
+            searchThumbnails: [...(prev.searchThumbnails ?? []), ...thumbnails].slice(0, 12),
+          }));
+        }
       );
+      setLoadingContext({ candidateCount: pool.length });
+      setPhase("reranking");
       const reranked = await apiFetch<RerankerOutput>("/api/rerank", {
         candidates: pool,
         userId,
@@ -779,35 +813,64 @@ export default function ChatPage() {
     <>
       <div className="chatShell">
         {/* Header */}
-        <div className="chatHeader">i-shopper</div>
+        <div className="chatHeader">
+          <span className="chatHeaderTitle">i-shopper</span>
+          <span className="chatHeaderSub">AI shopping agent</span>
+          {isLoading && <span className="chatHeaderLive" />}
+        </div>
 
         {/* Message feed */}
         <div className="chatFeed" ref={feedRef}>
           {testMode === null ? (
             <div className="modePicker">
-              <p>Choose a mode for this chat</p>
+              <p className="modePickerTitle">Choose a mode</p>
               <div className="modeOptions">
                 <button className="modeBtn" onClick={() => setTestMode(false)}>
-                  <span className="modeBtnLabel">Regular</span>
-                  <span className="modeBtnSub">Shop normally</span>
+                  <span className="modeBtnIcon">🛍</span>
+                  <span className="modeBtnLabel">Shop</span>
+                  <span className="modeBtnSub">Normal shopping experience</span>
                 </button>
                 <button className="modeBtn test" onClick={() => setTestMode(true)}>
-                  <span className="modeBtnLabel">Test</span>
-                  <span className="modeBtnSub">Show pipeline stages</span>
+                  <span className="modeBtnIcon">⚡</span>
+                  <span className="modeBtnLabel">Inspector</span>
+                  <span className="modeBtnSub">Show pipeline internals</span>
                 </button>
+              </div>
+              <div className="modeExamples">
+                <span className="modeExamplesLabel">Examples</span>
+                <div className="modeExamplesRow">
+                  {["Laptop bag under $80", "Wireless headphones for running", "Warm winter coat, not bulky", "Coffee maker for small kitchen"].map((p) => (
+                    <span key={p} className="modeExampleChip">{p}</span>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
-            messages.length === 0 && (
-              testMode === true ? (
-                <div className="msg debug" style={{ marginTop: 40 }}>
-                  {`test mode\npipeline stage outputs will appear here after each query`}
+            messages.length === 0 && phase === "idle" && (
+              <div className="emptyState">
+                {testMode === true && (
+                  <div className="msg debug" style={{ marginBottom: 12 }}>
+                    {`inspector mode — pipeline stage outputs will appear here after each query`}
+                  </div>
+                )}
+                <p className="emptyStateHint">What are you shopping for today?</p>
+                <div className="examplePromptsRow">
+                  {[
+                    "Laptop bag under $80",
+                    "Wireless headphones for running",
+                    "Warm winter coat, not bulky",
+                    "Coffee maker for small kitchen",
+                  ].map((prompt) => (
+                    <button
+                      key={prompt}
+                      className="examplePromptBtn"
+                      onClick={() => send(prompt)}
+                    >
+                      {prompt}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <p style={{ color: "#71717a", alignSelf: "center", marginTop: 40 }}>
-                  What are you shopping for today?
-                </p>
-              )
+              </div>
             )
           )}
 
@@ -817,16 +880,15 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {/* Loading indicator */}
+          {/* Pipeline progress indicator */}
           {isLoading && (
-            <div className="msgLoading">
-              <span className="dot" />
-              <span className="dot" />
-              <span className="dot" />
-              <span style={{ fontSize: 13, color: "#71717a", marginLeft: 4 }}>
-                {phase === "thinking" ? "Thinking…" : phase === "reranking" ? "Evaluating…" : "Searching…"}
-              </span>
-            </div>
+            <PipelineProgress
+              phase={phase as PipelinePhase}
+              queries={loadingContext.queries}
+              candidateCount={loadingContext.candidateCount}
+              searchThumbnails={loadingContext.searchThumbnails}
+              userName={userName}
+            />
           )}
 
           {/* Constraint chips */}
@@ -861,6 +923,11 @@ export default function ChatPage() {
                 />
               ))}
             </div>
+          )}
+
+          {/* Match score chart — shown below cards when results are visible */}
+          {showProducts && (
+            <MatchScoreChart items={displayItems} />
           )}
 
           {/* Decision buttons */}

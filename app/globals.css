@@ -843,3 +843,454 @@ button { font-family: inherit; }
   font-size: 18px; cursor: pointer; padding: 13px 4px;  /* was 14px */
 }
 .btnObSkip:hover { color: #18181b; }
+
+/* ── Autopilot button (header) ────────────────────────────── */
+.autopilotBtn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+  border: 1.5px solid #bfdbfe;
+  border-radius: 100px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.autopilotBtn:hover {
+  background: linear-gradient(135deg, #dbeafe, #dcfce7);
+  border-color: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(37,99,235,0.15);
+}
+
+/* ── Autopilot panel overlay ──────────────────────────────── */
+.apOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  animation: apFadeIn 0.2s ease both;
+}
+@media (min-width: 640px) {
+  .apOverlay { align-items: center; padding: 24px; }
+}
+@keyframes apFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.apPanel {
+  background: #fff;
+  border-radius: 22px 22px 0 0;
+  width: 100%;
+  max-width: 520px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  animation: apSlideUp 0.28s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+}
+@media (min-width: 640px) {
+  .apPanel { border-radius: 22px; max-height: 80dvh; }
+}
+@keyframes apSlideUp {
+  from { opacity: 0; transform: translateY(32px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* Header */
+.apHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid #f4f4f5;
+  flex-shrink: 0;
+}
+.apHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.apHeaderIcon {
+  font-size: 30px;
+  line-height: 1;
+}
+.apTitle {
+  font-size: 20px;
+  font-weight: 800;
+  color: #18181b;
+  margin: 0;
+}
+.apSub {
+  font-size: 15px;
+  color: #71717a;
+  margin: 2px 0 0;
+}
+.apClose {
+  background: #f4f4f5;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: #71717a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.apClose:hover { background: #e4e4e7; color: #18181b; }
+
+/* Body */
+.apBody {
+  padding: 20px 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+.apBodyCenter {
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  text-align: center;
+}
+.apBodyDesc {
+  font-size: 17px;
+  color: #52525b;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Source cards (permission phase) */
+.apSourceList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.apSourceCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 13px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+.apSourceCard.on {
+  border-color: #2563eb;
+  background: #f0f9ff;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+}
+.apSourceCard:hover { border-color: #93c5fd; }
+.apSourceIcon { font-size: 26px; flex-shrink: 0; }
+.apSourceInfo { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.apSourceLabel { font-size: 18px; font-weight: 700; color: #18181b; }
+.apSourceDesc  { font-size: 14px; color: #71717a; }
+.apSourceToggle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #a1a1aa;
+  min-width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.apSourceCard.on .apSourceToggle { color: #2563eb; }
+
+/* Input phase */
+.apInputBlocks { display: flex; flex-direction: column; gap: 14px; }
+.apInputBlock  { display: flex; flex-direction: column; gap: 6px; }
+.apInputLabel  { font-size: 16px; font-weight: 600; color: #3f3f46; }
+.apTextarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  color: #18181b;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.apTextarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+}
+.apTextarea::placeholder { color: #a1a1aa; white-space: pre-wrap; }
+.apInputActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.apError {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-size: 16px;
+  color: #dc2626;
+  margin: 0;
+}
+
+/* CTA buttons */
+.apCta {
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  border: none;
+  border-radius: 11px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+}
+.apCta:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+}
+.apCta:disabled { opacity: 0.42; cursor: not-allowed; transform: none; box-shadow: none; }
+.apCtaFlex { flex: 1; }
+.apCtaSecondary {
+  padding: 13px 18px;
+  background: #fff;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 11px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #52525b;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+.apCtaSecondary:hover { background: #f4f4f5; border-color: #d4d4d8; }
+.apCtaCenter { align-self: center; }
+.apPrivacyNote {
+  font-size: 13px;
+  color: #a1a1aa;
+  text-align: center;
+  margin: -6px 0 0;
+}
+
+/* Analyzing phase */
+.apAnalyzingRing {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+  border: 2px solid #bfdbfe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: apRingPulse 1.8s ease-in-out infinite;
+  margin-bottom: 8px;
+}
+.apAnalyzingIcon { font-size: 34px; line-height: 1; }
+@keyframes apRingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0.2); }
+  50%       { box-shadow: 0 0 0 12px rgba(37,99,235,0); }
+}
+.apAnalyzingText {
+  font-size: 20px;
+  font-weight: 700;
+  color: #18181b;
+  margin: 0;
+}
+.apAnalyzingSub {
+  font-size: 15px;
+  color: #71717a;
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.4;
+}
+.apAnalyzingDots {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.apDot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #93c5fd;
+  animation: apDotBounce 1.1s ease-in-out infinite;
+}
+.apDot--1 { animation-delay: 0s; }
+.apDot--2 { animation-delay: 0.18s; }
+.apDot--3 { animation-delay: 0.36s; }
+@keyframes apDotBounce {
+  0%, 100% { transform: translateY(0);    opacity: 0.4; }
+  50%       { transform: translateY(-7px); opacity: 1;   }
+}
+
+/* Results phase */
+.apSignals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.apSignalsLabel { font-size: 14px; font-weight: 600; color: #15803d; letter-spacing: 0.04em; text-transform: uppercase; }
+.apSignalChips { display: flex; flex-wrap: wrap; gap: 7px; }
+.apSignalChip {
+  padding: 4px 12px;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #15803d;
+}
+.apPredictions { display: flex; flex-direction: column; gap: 10px; }
+.apPredCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 13px;
+  padding: 14px 16px;
+  animation: cardPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.apPredCard:hover { border-color: #93c5fd; box-shadow: 0 2px 10px rgba(37,99,235,0.1); }
+.apPredCard:nth-child(1) { animation-delay: 0.04s; }
+.apPredCard:nth-child(2) { animation-delay: 0.10s; }
+.apPredCard:nth-child(3) { animation-delay: 0.16s; }
+.apPredCard:nth-child(4) { animation-delay: 0.22s; }
+.apPredCard:nth-child(5) { animation-delay: 0.28s; }
+.apPredCardBody { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.apPredNeed   { font-size: 17px; font-weight: 700; color: #18181b; margin: 0; }
+.apPredReason { font-size: 14px; color: #71717a; line-height: 1.4; margin: 0; }
+.apPredShop {
+  padding: 9px 16px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: background 0.12s, transform 0.1s;
+}
+.apPredShop:hover { background: #1d4ed8; transform: translateY(-1px); }
+
+/* Connected banner */
+.apConnectedBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.apConnectedIcon {
+  font-size: 22px;
+  font-weight: 800;
+  color: #16a34a;
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  background: #dcfce7;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.apConnectedTitle { font-size: 16px; font-weight: 700; color: #15803d; margin: 0; }
+.apConnectedSub   { font-size: 13px; color: #4ade80; margin: 2px 0 0; }
+.apDisconnectBtn {
+  margin-left: auto;
+  font-size: 13px;
+  color: #71717a;
+  background: none;
+  border: 1px solid #e4e4e7;
+  border-radius: 7px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+.apDisconnectBtn:hover { background: #f4f4f5; color: #18181b; }
+
+/* Source summary (connected state) */
+.apSourceSummary { display: flex; flex-direction: column; gap: 8px; }
+.apSourceSummaryItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  color: #52525b;
+  background: #f8fafc;
+  border-radius: 9px;
+  padding: 9px 13px;
+}
+.apSourceSummaryItem span:first-child { font-size: 20px; }
+.apOptional { font-size: 13px; color: #a1a1aa; font-weight: 400; }
+
+/* Google OAuth button */
+.apGoogleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 20px;
+  background: #fff;
+  border: 1.5px solid #e4e4e7;
+  border-radius: 11px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #18181b;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+.apGoogleBtn:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+  transform: translateY(-1px);
+}
+.apGoogleLogo { width: 20px; height: 20px; flex-shrink: 0; }
+
+/* Divider */
+.apDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+.apDivider::before, .apDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e4e4e7;
+}
+
+/* Full-width secondary CTA */
+.apCtaFull { width: 100%; text-align: center; }

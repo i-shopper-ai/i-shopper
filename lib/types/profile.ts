@@ -21,6 +21,9 @@ export type ProfileData = {
   priorityAttributes: string[];
   antiPreferences: AntiPreferences;
   pastSignals: PastSignal[];
+
+  // ── Autopilot-extracted lifestyle context ────────────────────────────────
+  lifestyleSignals?: string[];  // e.g. ["marathon runner", "frequent traveler"]
 };
 
 export type UserProfile = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { ProductCard } from "@/app/components/ProductCard";
 import { ConstraintChip } from "@/app/components/ConstraintChip";
@@ -11,6 +11,7 @@ import { NullProductState } from "@/app/components/NullProductState";
 import { PipelineProgress } from "@/app/components/PipelineProgress";
 import type { PipelinePhase } from "@/app/components/PipelineProgress";
 import { MatchScoreChart } from "@/app/components/MatchScoreChart";
+import { AutopilotPanel } from "@/app/components/AutopilotPanel";
 
 import type { Product, RankedProduct, RerankerOutput } from "@/lib/types/product";
 import { PAGE_SIZE } from "@/lib/agents/rerankerAgent";
@@ -258,6 +259,7 @@ function fmtStage3(reranked: RerankerOutput, candidates: Product[]): string {
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Identity & readiness
   const [userId, setUserId] = useState<string>("");
@@ -292,6 +294,7 @@ export default function ChatPage() {
   const pendingDecision = useRef<UserDecision | null>(null);
   const judgeLoopRef = useRef<JudgeLoopState | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [autopilotOpen, setAutopilotOpen] = useState(false);
 
   // Extra context surfaced to the pipeline progress indicator
   const [loadingContext, setLoadingContext] = useState<{
@@ -333,6 +336,18 @@ export default function ChatPage() {
       })
       .catch(() => setReady(true)); // true network failure → still allow chat
   }, [router]);
+
+  // Auto-reopen autopilot panel after Google OAuth redirect
+  useEffect(() => {
+    const ap = searchParams.get("autopilot");
+    if (ap === "connected" || ap === "denied" || ap === "error") {
+      setAutopilotOpen(true);
+      // Clean the URL without triggering a navigation
+      const url = new URL(window.location.href);
+      url.searchParams.delete("autopilot");
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [searchParams]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -671,6 +686,16 @@ export default function ChatPage() {
     if (followUpMsg) setMessages((prev) => [...prev, followUpMsg]);
   }
 
+  // ── Autopilot: receive a predicted need and kick off shopping ────────────
+
+  function onAutopilotSearch(query: string, label: string) {
+    // Ensure Shop mode is active so send() is not blocked by mode gate
+    if (testMode === null) setTestMode(false);
+    // The label is user-friendly; use it as the chat message
+    // (the reranker will receive the full query context via the intent agent)
+    send(label);
+  }
+
   // ── Suggest similar: page through already-ranked candidates ─────────────
 
   async function showNextPage() {
@@ -817,6 +842,13 @@ export default function ChatPage() {
           <span className="chatHeaderTitle">i-shopper</span>
           <span className="chatHeaderSub">AI shopping agent</span>
           {isLoading && <span className="chatHeaderLive" />}
+          <button
+            className="autopilotBtn"
+            onClick={() => setAutopilotOpen(true)}
+            title="Autopilot: predict your needs from calendar & email"
+          >
+            🤖 Autopilot
+          </button>
         </div>
 
         {/* Message feed */}
@@ -974,6 +1006,15 @@ export default function ChatPage() {
           open={feedbackOpen}
           onSubmit={onFeedbackDone}
           onSkip={onFeedbackSkip}
+        />
+      )}
+
+      {/* Autopilot panel */}
+      {autopilotOpen && (
+        <AutopilotPanel
+          userId={userId}
+          onSearch={onAutopilotSearch}
+          onClose={() => setAutopilotOpen(false)}
         />
       )}
     </>

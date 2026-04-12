@@ -36,21 +36,26 @@ const ANTI_BRANDS = [
 
 const ANTI_MATERIALS = ["plastic", "synthetic", "leather", "polyester", "metal"];
 
-const TOTAL_CARDS = 3;
+const TOTAL_CARDS = 4;
 
 const CARD_META = [
   {
-    step: "STEP 1 OF 3",
+    step: "STEP 1 OF 4",
+    title: "What's your name?",
+    sub: "So we can personalize your experience.",
+  },
+  {
+    step: "STEP 2 OF 4",
     title: "What do you shop for?",
     sub: "Select all categories that interest you.",
   },
   {
-    step: "STEP 2 OF 3",
+    step: "STEP 3 OF 4",
     title: "What matters most to you?",
     sub: "Choose your top priorities when comparing products.",
   },
   {
-    step: "STEP 3 OF 3",
+    step: "STEP 4 OF 4",
     title: "Anything you want to avoid?",
     sub: "We'll filter these out from your recommendations.",
   },
@@ -63,6 +68,7 @@ function toggle(arr: string[], val: string): string[] {
 export default function OnboardingPage() {
   const router = useRouter();
   const [card, setCard] = useState(0);
+  const [name, setName] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
   const [priorityAttrs, setPriorityAttrs] = useState<string[]>([]);
   const [antiBrands, setAntiBrands] = useState<string[]>([]);
@@ -105,6 +111,7 @@ export default function OnboardingPage() {
     const userId = localStorage.getItem("userId")!;
 
     if (!skipAll) {
+      if (name.trim()) localStorage.setItem("userName", name.trim());
       await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,8 +147,24 @@ export default function OnboardingPage() {
         <h1 className="obTitle">{meta.title}</h1>
         <p className="obSub">{meta.sub}</p>
 
-        {/* Card 1: Categories */}
+        {/* Card 1: Name */}
         {card === 0 && (
+          <div className="obNameWrap">
+            <input
+              className="obNameInput"
+              type="text"
+              placeholder="Your first name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") advance(); }}
+              autoFocus
+              maxLength={40}
+            />
+          </div>
+        )}
+
+        {/* Card 2: Categories */}
+        {card === 1 && (
           <div className="obOptionGrid">
             {CATEGORIES.map((cat) => (
               <button
@@ -155,8 +178,8 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Card 2: Priority attributes */}
-        {card === 1 && (
+        {/* Card 3: Priority attributes */}
+        {card === 2 && (
           <div className="obChipGrid">
             {PRIORITY_ATTRS.map((attr) => (
               <button
@@ -170,8 +193,8 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Card 3: Anti-preferences */}
-        {card === 2 && (
+        {/* Card 4: Anti-preferences */}
+        {card === 3 && (
           <>
             <p className="obLabel">BRANDS TO AVOID</p>
             <div className="obChipGrid">

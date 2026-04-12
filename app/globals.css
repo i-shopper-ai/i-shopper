@@ -791,6 +791,16 @@ button { font-family: inherit; }
   font-size: 18px; text-align: center; transition: all .1s;  /* was 14px */
 }
 .obOption.on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+.obNameWrap { display: flex; justify-content: center; margin: 12px 0 32px; }
+.obNameInput {
+  width: 100%; max-width: 320px;
+  padding: 14px 18px; font-size: 18px; font-family: inherit;
+  border: 2px solid #e4e4e7; border-radius: 12px;
+  outline: none; transition: border-color 0.15s;
+  text-align: center;
+}
+.obNameInput:focus { border-color: #2563eb; }
+.obNameInput::placeholder { color: #a1a1aa; }
 .obChipGrid { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 26px; }
 .obChip {
   padding: 9px 18px; border: 2px solid #e4e4e7;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { ProductCard } from "@/app/components/ProductCard";
@@ -258,6 +258,14 @@ function fmtStage3(reranked: RerankerOutput, candidates: Product[]): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatPageInner />
+    </Suspense>
+  );
+}
+
+function ChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 

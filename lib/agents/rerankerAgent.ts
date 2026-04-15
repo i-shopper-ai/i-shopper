@@ -5,10 +5,6 @@ import { getAnthropicConfig } from "@/lib/llm-clients";
 
 export const PAGE_SIZE = 5;
 
-function getConfidenceThreshold(): number {
-  return parseFloat(process.env.CONFIDENCE_THRESHOLD ?? "0.6");
-}
-
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 function buildProfileSection(userProfile: UserProfile | null): string {
@@ -134,8 +130,7 @@ type ScoringOutput = { nullProduct: boolean; rationale: string | null; scores: S
 async function scoreProducts(
   candidates: Product[],
   userProfile: UserProfile | null,
-  constraints: DetectedConstraint[],
-  threshold: number
+  constraints: DetectedConstraint[]
 ): Promise<ScoringOutput> {
   const { messages, model } = getAnthropicConfig("haiku");
 
@@ -149,7 +144,7 @@ Scoring rules:
 - Score each product 0.0–1.0 against the user profile and constraints.
 - Score reflects constraint match AND profile fit, NOT just product quality.
 - Return ALL products ordered by score descending.
-- If the highest score is below ${threshold}, set nullProduct=true with a 1-2 sentence rationale.
+- Set nullProduct=true ONLY when ALL products violate a hard constraint (see below). Otherwise always false.
 - If nullProduct is false, set rationale to null.
 
 HARD CONSTRAINT VIOLATIONS — score 0.00–0.10, regardless of rating or reviews:
@@ -288,7 +283,7 @@ export async function generateBatchReasons(
 // Used when the LLM scoring call fails (e.g. parse error, truncation).
 // Generates reasons for all products so the fallback path still shows cards.
 
-function heuristicRank(candidates: Product[], threshold: number): RerankerOutput {
+function heuristicRank(candidates: Product[]): RerankerOutput {
   const results = candidates
     .map((p) => {
       const ratingScore = (p.rating ?? 0) / 5;
@@ -303,9 +298,8 @@ function heuristicRank(candidates: Product[], threshold: number): RerankerOutput
     })
     .sort((a, b) => b.score - a.score);
 
-  const topScore = results[0]?.score ?? 0;
   return {
-    nullProduct: topScore < threshold,
+    nullProduct: false,
     rationale: "Ranking by rating — profile-based scoring was unavailable for this result set.",
     results,
   };
@@ -342,7 +336,6 @@ export async function runRerankerAgent(
     return { nullProduct: true, results: [] };
   }
 
-  const threshold = getConfidenceThreshold();
   // 1. Deterministic price filter — drop products clearly outside stated range
   const priceFiltered = applyPriceFilter(candidates, constraints);
   // 2. Heuristic cap — keeps top-N by Bayesian quality signal
@@ -351,18 +344,15 @@ export async function runRerankerAgent(
   // Pass 1: score pre-filtered candidates
   let scoringOutput: ScoringOutput;
   try {
-    scoringOutput = await scoreProducts(scoringPool, userProfile, constraints, threshold);
+    scoringOutput = await scoreProducts(scoringPool, userProfile, constraints);
   } catch (e) {
     console.warn(`[reranker] Scoring failed for ${scoringPool.length} candidates — heuristic fallback:`, e);
-    return heuristicRank(candidates, threshold);
+    return heuristicRank(candidates);
   }
 
   const sorted = [...(scoringOutput.scores ?? [])].sort((a, b) => b.score - a.score);
-  const topScore = sorted[0]?.score ?? 0;
-  const nullProduct = scoringOutput.nullProduct || topScore < threshold;
-  const rationale = nullProduct
-    ? (scoringOutput.rationale ?? "The best matching products scored below the confidence threshold.")
-    : undefined;
+  const nullProduct = scoringOutput.nullProduct;
+  const rationale = nullProduct ? (scoringOutput.rationale ?? undefined) : undefined;
 
   // Pass 2: generate reasons for the first page (top-K) only.
   // Subsequent pages get their reasons generated lazily via /api/reasons

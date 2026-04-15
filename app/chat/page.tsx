@@ -17,7 +17,7 @@ import type { Product, RankedProduct, RerankerOutput } from "@/lib/types/product
 import { PAGE_SIZE } from "@/lib/agents/rerankerAgent";
 import type { BatchReason } from "@/lib/agents/rerankerAgent";
 import type {
-  IntentAgentOutput,
+  QueryAgentOutput,
   DetectedConstraint,
   UserDecision,
   FeedbackTag,
@@ -25,8 +25,38 @@ import type {
 } from "@/lib/types/session";
 import type { ProfileData } from "@/lib/types/profile";
 
-// Max judge-loop clarification rounds before committing to search.
-const MAX_JUDGE_ITERATIONS = 6;
+// Max clarification rounds before committing to search.
+const MAX_CLARIFICATIONS = 10;
+
+// ── Randomised transitional messages ─────────────────────────────────────────
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+const RESULTS_MSGS = [
+  "Here are my top picks for you:",
+  "Found some great options — take a look:",
+  "Here's what I'd recommend:",
+  "These look like strong matches for you:",
+  "Here are the best fits I found:",
+];
+
+const ACCEPT_MSGS = [
+  "Great choice! I've saved your preference. What else can I help you find?",
+  "Nice pick! Noted for next time. Anything else you're shopping for?",
+  "Love it — I'll remember that. What's next on your list?",
+  "Saved! You've got good taste. What else can I help with?",
+  "Perfect. Your taste profile is updated. What else are you looking for?",
+];
+
+const REJECT_MSGS = [
+  "Noted, those weren't the right fit. What else can I help you find?",
+  "Got it, I'll keep that in mind. Want to try a different search?",
+  "Understood — I'll do better next time. What else are you shopping for?",
+  "Fair enough. Let me know what you'd like to look for next.",
+  "Duly noted. What else can I help you find?",
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,21 +64,20 @@ type ChatMsg = { role: "user" | "assistant" | "debug"; content: string };
 
 type Phase =
   | "idle"
-  | "thinking"      // waiting for intent agent
+  | "thinking"      // waiting for judge / query agent
   | "searching"     // waiting for search API
   | "reranking"     // waiting for reranker
   | "results"       // product cards shown, awaiting decision
   | "null_product"  // null product state shown
   | "feedback";     // feedback modal open
 
-type JudgeDialogueTurn = { question: string; answer: string };
+type ClarificationTurn = { question: string; answer: string };
 
-type JudgeLoopState = {
-  intent: IntentAgentOutput;
-  queryContext: string;       // joined search queries — stable context for both agents
-  dialogue: JudgeDialogueTurn[];
+type ClarificationState = {
+  originalMessage: string;
+  dialogue: ClarificationTurn[];
   lastQuestion: string;
-  iterCount: number;
+  count: number;
 };
 
 interface SessionData {
@@ -122,22 +151,19 @@ async function fetchSearchStreaming(
 
 // ── Test-mode debug formatters ────────────────────────────────────────────────
 
-function fmtStage1(intent: IntentAgentOutput): string {
+function fmtQueryAgent(output: QueryAgentOutput, clarificationRounds: number): string {
   const constraintStr =
-    intent.detectedConstraints.length > 0
-      ? intent.detectedConstraints.map((c) => `${c.type}: ${c.value}`).join("  ·  ")
+    output.detectedConstraints.length > 0
+      ? output.detectedConstraints.map((c) => `${c.type}: ${c.value}`).join("  ·  ")
       : "none";
-  const queriesStr = intent.searchQueries
+  const queriesStr = output.searchQueries
     .map((q, i) => `  ${i + 1}. "${q}"`)
     .join("\n");
-  const clarifyStr = intent.needsClarification
-    ? `asking — "${intent.clarifyingQuestion}"`
-    : "none";
   return (
-    `Stage 1 — Intent Agent\n` +
-    `Queries (${intent.searchQueries.length}):\n${queriesStr}\n` +
+    `Query Agent\n` +
+    `Queries (${output.searchQueries.length}):\n${queriesStr}\n` +
     `Constraints: ${constraintStr}\n` +
-    `Clarification: ${clarifyStr}`
+    `Clarification rounds: ${clarificationRounds}`
   );
 }
 
@@ -280,12 +306,9 @@ function ChatPageInner() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
-  const [clarificationCount, setClarificationCount] = useState(0);
 
-  // History for intent agent (all prior messages in OpenAI role/content format)
-  // Stores user/assistant turns sent to the intent agent. "debug" entries are
-  // UI-only and filtered out before the array is forwarded to the API.
-  const historyRef = useRef<ChatMsg[]>([]);
+  // Clarification loop state — null when not in a loop
+  const clarificationRef = useRef<ClarificationState | null>(null);
 
   // Products
   const [constraints, setConstraints] = useState<DetectedConstraint[]>([]);
@@ -300,7 +323,6 @@ function ChatPageInner() {
   // Session tracking
   const sessionRef = useRef<SessionData | null>(null);
   const pendingDecision = useRef<UserDecision | null>(null);
-  const judgeLoopRef = useRef<JudgeLoopState | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [autopilotOpen, setAutopilotOpen] = useState(false);
 
@@ -314,6 +336,7 @@ function ChatPageInner() {
   const [userName, setUserName] = useState<string>("");
 
   const feedRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -357,9 +380,19 @@ function ChatPageInner() {
     }
   }, [searchParams]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom.
+  // Double-rAF: first frame commits React's DOM changes, second frame ensures
+  // the browser has run layout (including CSS animations and image sizing).
+  // Direct scrollTop assignment is instant — smooth animation would race with
+  // ongoing layout changes and stop at the wrong position.
   useEffect(() => {
-    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (feedRef.current) {
+          feedRef.current.scrollTop = feedRef.current.scrollHeight;
+        }
+      });
+    });
   }, [messages, phase]);
 
   // ── Core send flow ────────────────────────────────────────────────────────
@@ -367,103 +400,74 @@ function ChatPageInner() {
   const send = useCallback(
     async (text: string) => {
       const userText = text.trim();
-      if (!userText || phase === "thinking" || phase === "searching" || phase === "reranking") return;
+      if (!userText || phase === "thinking" || phase === "searching" || phase === "reranking" || phase === "feedback") return;
 
       const userMsg: ChatMsg = { role: "user", content: userText };
       setMessages((prev) => [...prev, userMsg]);
-      historyRef.current = [...historyRef.current, userMsg];
       setInput("");
       setLoadingContext({});
       setPhase("thinking");
 
       try {
-        let searchIntent: IntentAgentOutput;
-
-        // ── Judge loop: user answered a clarifying question ──────────────
-        if (judgeLoopRef.current) {
-          const state = judgeLoopRef.current;
+        // ── Step 1: Clarification loop ───────────────────────────────────
+        // If already in a loop, record the answer and re-evaluate.
+        // Otherwise start fresh with the new message.
+        if (clarificationRef.current) {
+          const state = clarificationRef.current;
           state.dialogue.push({ question: state.lastQuestion, answer: userText });
-          state.iterCount++;
-
-          if (state.iterCount < MAX_JUDGE_ITERATIONS) {
-            const judge = await apiFetch<{ sufficient: boolean }>("/api/judge", {
-              query: state.queryContext,
-              userId,
-              dialogue: state.dialogue,
-            });
-
-            if (!judge.sufficient) {
-              const { question } = await apiFetch<{ question: string }>("/api/clarify", {
-                query: state.queryContext,
-                userId,
-                dialogue: state.dialogue,
-              });
-              state.lastQuestion = question;
-              const aMsg: ChatMsg = { role: "assistant", content: question };
-              setMessages((prev) => [...prev, aMsg]);
-              historyRef.current = [...historyRef.current, aMsg];
-              setPhase("idle");
-              return;
-            }
-          }
-
-          // Judge passed or max iterations reached — proceed to search
-          searchIntent = state.intent;
-          judgeLoopRef.current = null;
-
+          state.count++;
         } else {
-          // ── Normal flow: intent agent ──────────────────────────────────
-          const intent = await apiFetch<IntentAgentOutput>("/api/chat", {
-            message: userText,
-            userId,
-            clarificationCount,
-            history: historyRef.current.filter((m) => m.role !== "debug").slice(0, -1),
-          });
-
-          if (testMode === true) {
-            setMessages((prev) => [...prev, { role: "debug", content: fmtStage1(intent) }]);
-          }
-
-          if (intent.needsClarification && intent.clarifyingQuestion) {
-            const aMsg: ChatMsg = { role: "assistant", content: intent.clarifyingQuestion };
-            setMessages((prev) => [...prev, aMsg]);
-            historyRef.current = [...historyRef.current, aMsg];
-            setClarificationCount((c) => c + 1);
-            setPhase("idle");
-            return;
-          }
-
-          // ── 1b. Start judge loop ─────────────────────────────────────
-          const queryContext = intent.searchQueries.join("; ");
-          const judge = await apiFetch<{ sufficient: boolean }>("/api/judge", {
-            query: queryContext,
-            userId,
+          clarificationRef.current = {
+            originalMessage: userText,
             dialogue: [],
-          });
-
-          if (!judge.sufficient) {
-            const { question } = await apiFetch<{ question: string }>("/api/clarify", {
-              query: queryContext,
-              userId,
-              dialogue: [],
-            });
-            judgeLoopRef.current = { intent, queryContext, dialogue: [], lastQuestion: question, iterCount: 0 };
-            const aMsg: ChatMsg = { role: "assistant", content: question };
-            setMessages((prev) => [...prev, aMsg]);
-            historyRef.current = [...historyRef.current, aMsg];
-            setPhase("idle");
-            return;
-          }
-
-          searchIntent = intent;
+            lastQuestion: "",
+            count: 0,
+          };
         }
 
-        // ── 2. Search ────────────────────────────────────────────────────
-        setLoadingContext({ queries: searchIntent.searchQueries });
+        const state = clarificationRef.current;
+
+        const judge = await apiFetch<{ sufficient: boolean }>("/api/judge", {
+          query: state.originalMessage,
+          userId,
+          dialogue: state.dialogue,
+          count: state.count,
+          maxClarifications: MAX_CLARIFICATIONS,
+        });
+
+        if (!judge.sufficient) {
+          const { question } = await apiFetch<{ question: string }>("/api/clarify", {
+            query: state.originalMessage,
+            userId,
+            dialogue: state.dialogue,
+          });
+          state.lastQuestion = question;
+          const aMsg: ChatMsg = { role: "assistant", content: question };
+          setMessages((prev) => [...prev, aMsg]);
+          setPhase("idle");
+          return;
+        }
+
+        // ── Step 2: Generate search queries ──────────────────────────────
+        const queryOutput = await apiFetch<QueryAgentOutput>("/api/chat", {
+          message: state.originalMessage,
+          userId,
+          dialogue: state.dialogue,
+        });
+
+        if (testMode === true) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "debug", content: fmtQueryAgent(queryOutput, state.dialogue.length) },
+          ]);
+        }
+
+        // ── Step 3: Search ───────────────────────────────────────────────
+        setLoadingContext({ queries: queryOutput.searchQueries });
         setPhase("searching");
         const pool = await fetchSearchStreaming(
-          searchIntent.searchQueries,
-          searchIntent.detectedConstraints,
+          queryOutput.searchQueries,
+          queryOutput.detectedConstraints,
           (thumbnails) => {
             setLoadingContext((prev) => ({
               ...prev,
@@ -475,20 +479,20 @@ function ChatPageInner() {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage2(pool) }]);
         }
 
-        // ── 3. Rerank ────────────────────────────────────────────────────
+        // ── Step 4: Rerank ───────────────────────────────────────────────
         setLoadingContext({ candidateCount: pool.length });
         setPhase("reranking");
         const reranked = await apiFetch<RerankerOutput>("/api/rerank", {
           candidates: pool,
           userId,
-          constraints: searchIntent.detectedConstraints,
+          constraints: queryOutput.detectedConstraints,
         });
         if (testMode === true) {
           setMessages((prev) => [...prev, { role: "debug", content: fmtStage3(reranked, pool) }]);
         }
 
         setCandidates(pool);
-        setConstraints(searchIntent.detectedConstraints);
+        setConstraints(queryOutput.detectedConstraints);
         setRankedResults(reranked.results);
         setNullProduct(reranked.nullProduct);
         setNullRationale(reranked.rationale ?? null);
@@ -496,39 +500,32 @@ function ChatPageInner() {
         setResultPage(0);
         setSelectedProductId(null);
 
-        // ── 4. Fetch profileBefore for session log ───────────────────────
+        // ── Step 5: Fetch profileBefore for session log ──────────────────
         const profileRes = await fetch(`/api/profile/get?userId=${userId}`);
         const { profile: profileBefore } = await profileRes.json();
 
-        // ── 5. Initialise session record ─────────────────────────────────
+        // ── Step 6: Initialise session record ────────────────────────────
         const sessionId = crypto.randomUUID();
-
-        const clarifications: { question: string; answer: string }[] = [];
-        const hist = historyRef.current.filter((m) => m.role !== "debug");
-        for (let i = 0; i < hist.length - 1; i++) {
-          if (hist[i].role === "assistant" && hist[i + 1].role === "user") {
-            clarifications.push({ question: hist[i].content, answer: hist[i + 1].content });
-          }
-        }
+        const clarifications = state.dialogue; // already structured {question, answer}[]
 
         sessionRef.current = {
           sessionId,
-          searchQueries: searchIntent.searchQueries,
+          searchQueries: queryOutput.searchQueries,
           candidatePool: pool,
           rankedResults: reranked.results,
           profileBefore: profileBefore ?? null,
           clarifications,
-          intent: userText,
+          intent: state.originalMessage,
         };
 
-        // ── 6. Fire-and-forget initial session log ───────────────────────
+        // ── Step 7: Fire-and-forget session log ──────────────────────────
         const log: SessionLog = {
           sessionId,
           userId,
           timestamp: new Date().toISOString(),
-          intent: userText,
+          intent: state.originalMessage,
           clarifications,
-          generatedQueries: searchIntent.searchQueries,
+          generatedQueries: queryOutput.searchQueries,
           candidatePool: pool.map((p) => ({ productId: p.id, id: p.id, title: p.title, price: p.price })),
           rankedResults: reranked.results
             .filter((r) => r.reason !== null)
@@ -546,28 +543,26 @@ function ChatPageInner() {
           body: JSON.stringify(log),
         }).catch(console.error);
 
-        // ── 7. Update UI phase ───────────────────────────────────────────
+        // ── Step 8: Update UI ─────────────────────────────────────────────
+        clarificationRef.current = null; // reset for next session
         const aMsg: ChatMsg = {
           role: "assistant",
           content: reranked.nullProduct
             ? "I couldn't find products that match your needs confidently enough to recommend."
-            : "Here are my top picks for you:",
+            : pick(RESULTS_MSGS),
         };
         setMessages((prev) => [...prev, aMsg]);
-        historyRef.current = [...historyRef.current, aMsg];
         setPhase(reranked.nullProduct ? "null_product" : "results");
       } catch (err) {
         console.error(err);
-        const errMsg: ChatMsg = {
-          role: "assistant",
-          content: "Something went wrong. Please try again.",
-        };
-        setMessages((prev) => [...prev, errMsg]);
-        historyRef.current = [...historyRef.current, errMsg];
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Something went wrong. Please try again." },
+        ]);
         setPhase("idle");
       }
     },
-    [userId, clarificationCount, phase, testMode]
+    [userId, phase, testMode]
   );
 
   // ── Decision handling ─────────────────────────────────────────────────────
@@ -643,15 +638,16 @@ function ChatPageInner() {
     }
 
     const followUpContent =
-      decision === "accept"
-        ? `Great choice! I've saved your preference. What else can I help you find?`
-        : `Noted, those weren't the right fit. What else can I help you find?`;
+      decision === "accept" ? pick(ACCEPT_MSGS) : pick(REJECT_MSGS);
 
     resetSession({ role: "assistant", content: followUpContent });
   }
 
   function onDecide(decision: UserDecision) {
     pendingDecision.current = decision;
+    // Reset clarification state immediately so the next query starts at count=0.
+    // Do this synchronously here rather than waiting for processDecision to finish.
+    clarificationRef.current = null;
     // Move to "feedback" phase immediately so decision buttons hide and
     // product cards stay visible — no modal is opened for accept/reject_all.
     setPhase("feedback");
@@ -685,12 +681,9 @@ function ChatPageInner() {
     setNullRationale(null);
     setShowLowConf(false);
     setResultPage(0);
-    setClarificationCount(0);
-    setTestMode(null); // prompt mode selection at the start of each new chat
-    historyRef.current = [];
+    clarificationRef.current = null;
     sessionRef.current = null;
     pendingDecision.current = null;
-    judgeLoopRef.current = null;
     if (followUpMsg) setMessages((prev) => [...prev, followUpMsg]);
   }
 
@@ -715,7 +708,6 @@ function ChatPageInner() {
         content: "That's all the results I found for this search. Try rephrasing or start a new search!",
       };
       setMessages((prev) => [...prev, msg]);
-      historyRef.current = [msg];
       resetSession();
       return;
     }
@@ -760,7 +752,6 @@ function ChatPageInner() {
       content: `Here are more results (${nextPage * PAGE_SIZE + 1}–${Math.min((nextPage + 1) * PAGE_SIZE, rankedResults.length)} of ${rankedResults.length}):`,
     };
     setMessages((prev) => [...prev, msg]);
-    historyRef.current = [...historyRef.current, msg];
   }
 
   // ── Constraint chip removal → re-search ──────────────────────────────────
@@ -977,6 +968,11 @@ function ChatPageInner() {
               selectedProductId={selectedProductId}
             />
           )}
+
+          {/* Scroll sentinel — always last. Height compensates for Chrome's
+              known bug where padding-bottom on a flex overflow container is
+              excluded from the scroll area. */}
+          <div ref={bottomRef} style={{ height: 20, flexShrink: 0 }} />
         </div>
 
         {/* Input */}

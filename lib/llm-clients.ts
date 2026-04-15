@@ -65,10 +65,11 @@ export function getAnthropicConfig(tier: "sonnet" | "haiku" = "sonnet"): {
         awsSessionToken: process.env.AWS_SESSION_TOKEN,
       }),
     });
+    const sonnetModel = process.env.BEDROCK_CLAUDE_MODEL ?? "us.anthropic.claude-3-5-sonnet-20241022-v2:0";
     const model =
       tier === "haiku"
-        ? (process.env.BEDROCK_CLAUDE_HAIKU_MODEL ?? "us.anthropic.claude-haiku-4-5-20251001-v1:0")
-        : (process.env.BEDROCK_CLAUDE_MODEL ?? "us.anthropic.claude-3-5-sonnet-20241022-v2:0");
+        ? (process.env.BEDROCK_CLAUDE_HAIKU_MODEL ?? sonnetModel)
+        : sonnetModel;
     return {
       messages: client.messages as unknown as Anthropic["messages"],
       model,

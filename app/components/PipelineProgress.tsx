@@ -107,7 +107,7 @@ export function PipelineProgress({
 
   const detail =
     phase === "thinking"
-      ? "Analyzing your request and generating search queries…"
+      ? "Analyzing ..."
       : phase === "searching" && queries?.length
       ? queries.map((q) => `"${q}"`).join("  ·  ")
       : phase === "searching"

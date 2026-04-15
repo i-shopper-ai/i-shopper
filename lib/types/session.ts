@@ -49,9 +49,16 @@ export type SessionLog = {
   profileAfter: ProfileData | null;
 };
 
+/** @deprecated — intent agent removed. Use QueryAgentOutput + judge/clarify agents separately. */
 export type IntentAgentOutput = {
   needsClarification: boolean;
   clarifyingQuestion: string | null;
   detectedConstraints: DetectedConstraint[];
   searchQueries: string[];
+};
+
+/** Output of the query agent — search queries + constraints derived from the full conversation. */
+export type QueryAgentOutput = {
+  searchQueries: string[];
+  detectedConstraints: DetectedConstraint[];
 };

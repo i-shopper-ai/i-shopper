@@ -1,21 +1,22 @@
 import { NextResponse } from "next/server";
-import { runIntentAgent } from "@/lib/agents/intentAgent";
+import { runQueryAgent } from "@/lib/agents/intentAgent";
 import { getProfile } from "@/lib/db/kv";
+import type { JudgeDialogueTurn } from "@/lib/agents/intentAgent";
 
 export const maxDuration = 30;
 
-export interface ChatRequestBody {
+export interface QueryRequestBody {
+  /** The user's original shopping message (before any clarification). */
   message: string;
   userId: string;
-  clarificationCount?: number;
-  /** All prior turns in the conversation, in OpenAI message format. */
-  history?: { role: "user" | "assistant"; content: string }[];
+  /** Clarification dialogue collected before this call. */
+  dialogue?: JudgeDialogueTurn[];
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as ChatRequestBody;
-    const { message, userId, clarificationCount = 0, history = [] } = body;
+    const body = (await request.json()) as QueryRequestBody;
+    const { message, userId, dialogue = [] } = body;
 
     if (!message?.trim() || !userId?.trim()) {
       return NextResponse.json(
@@ -25,13 +26,7 @@ export async function POST(request: Request) {
     }
 
     const userProfile = await getProfile(userId);
-    const result = await runIntentAgent(
-      message,
-      history,
-      userProfile,
-      clarificationCount
-    );
-
+    const result = await runQueryAgent(message, userProfile, dialogue);
     return NextResponse.json(result);
   } catch (err) {
     console.error("[/api/chat]", err);

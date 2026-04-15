@@ -32,7 +32,12 @@ export async function GET(request: Request) {
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       console.error("[google/callback] Token exchange failed:", tokenRes.status, body);
-      return NextResponse.redirect(`${origin}/?autopilot=error`);
+      let reason = "token_exchange_failed";
+      try {
+        const parsed = JSON.parse(body);
+        reason = parsed.error ?? reason;
+      } catch {}
+      return NextResponse.redirect(`${origin}/?autopilot=error&reason=${encodeURIComponent(reason)}`);
     }
 
     const tokens = (await tokenRes.json()) as {

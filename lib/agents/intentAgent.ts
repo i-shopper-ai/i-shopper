@@ -1,76 +1,43 @@
 import OpenAI from "openai";
 import type { UserProfile } from "@/lib/types/profile";
-import type { IntentAgentOutput } from "@/lib/types/session";
+import type { QueryAgentOutput } from "@/lib/types/session";
 import { getOpenAIConfig, getAnthropicConfig } from "@/lib/llm-clients";
 
-function buildSystemPrompt(
-  userProfile: UserProfile | null,
-  clarificationCount: number
-): string {
-  const profileSection = userProfile
-    ? `\nThe user has an existing profile. Use it to resolve ambiguity before asking clarifying questions. Never ask about something already in the profile.\n\nUser profile:\n${JSON.stringify(userProfile.profile, null, 2)}\n`
-    : "\nThis is the user's first session. No profile data is available.\n";
+export type JudgeDialogueTurn = { question: string; answer: string };
 
-  const clarificationRule =
-    clarificationCount < 2
-      ? "If the user's intent is ambiguous OR if the profile is missing critical information needed to make confident recommendations (e.g. gender for clothing/shoes/accessories, sizing for fitted items, specific use case for technical products), ask exactly ONE clarifying question targeting the most important gap. Never ask about something already in the profile."
-      : "Do NOT ask any clarifying questions — the session limit of 2 has been reached. Commit to search immediately.";
+// ── Shared context builder ────────────────────────────────────────────────────
 
-  return `You are a shopping assistant. Parse the user's intent and generate product search queries.
-${profileSection}
-Rules:
-- ${clarificationRule}
-- Generate 2-3 specific, distinct product search queries (even if asking a clarifying question).
-- Detect constraints (budget, shipping, brand, material, form factor, etc.).
-- Return valid JSON only, no markdown, no explanation.
-
-CRITICAL — GENDER:
-  Never add a gender constraint (men's / women's / boys' / girls') to detectedConstraints or searchQueries unless the user's message explicitly contains a gendered word (e.g. "women's", "men's", "girls", "boys").
-  Do NOT infer gender from product category, brand, or user profile history.
-  A query like "brown running shoes" or "beige bucket hat" is gender-neutral — keep it that way.
-
-CRITICAL — BUDGET:
-  If the user's message explicitly states a price or budget (e.g. "$40–$50", "under $100", "$10,000–$15,000"), extract it as a price constraint directly. Do NOT ask a clarifying question about budget when the user has already stated one in this message.
-
-
-Output schema:
-{
-  "needsClarification": boolean,
-  "clarifyingQuestion": string | null,
-  "detectedConstraints": [{ "type": string, "value": string }],
-  "searchQueries": [string]
-}`;
-}
-
-// ── Judge agent ───────────────────────────────────────────────────────────────
-// Evaluates whether the user profile has enough information to make confident
-// personalized recommendations for the given query.
-// Returns sufficient=true on any parse/network failure so it never blocks search.
-
-type JudgeDialogueTurn = { question: string; answer: string };
-
-function buildJudgeContext(
+function buildContext(
   query: string,
   profileSection: string,
   dialogue: JudgeDialogueTurn[]
 ): string {
   const dialogueSection =
     dialogue.length > 0
-      ? `\nConversation so far:\n${dialogue.map((d) => `Q: ${d.question}\nA: ${d.answer}`).join("\n")}`
+      ? `\nClarification dialogue so far:\n${dialogue
+          .map((d) => `  Bot: ${d.question}\n  User: ${d.answer}`)
+          .join("\n")}`
       : "";
   return `User profile:\n${profileSection}\n\nOriginal query: "${query}"${dialogueSection}`;
 }
 
+function profileText(userProfile: UserProfile | null): string {
+  return userProfile
+    ? JSON.stringify(userProfile.profile, null, 2)
+    : "No profile available (new user).";
+}
+
+// ── Judge agent ───────────────────────────────────────────────────────────────
+// Sole decision-maker for whether a clarifying question is needed.
+// Returns sufficient=true on any parse/network failure so it never blocks search.
+
 export async function runJudgeAgent(
   query: string,
   userProfile: UserProfile | null,
-  dialogue: JudgeDialogueTurn[] = []
+  dialogue: JudgeDialogueTurn[] = [],
+  clarificationCount?: number
 ): Promise<{ sufficient: boolean }> {
   const { messages, model } = getAnthropicConfig("haiku");
-
-  const profileSection = userProfile
-    ? JSON.stringify(userProfile.profile, null, 2)
-    : "No profile available (new user).";
 
   const system = `You are a strict gatekeeper deciding whether there is enough information to make confident, personalized product recommendations.
 
@@ -79,6 +46,9 @@ Principle: A rule fires when the absence of the specified information would mean
 DEFAULT TO { "sufficient": false }. Only return true when you are fully confident that enough context exists for a precise, personalized recommendation without any additional information.
 
 MANDATORY insufficient — return false if ANY of the following apply:
+
+AMBIGUOUS / NON-SHOPPING INPUT
+0. The query does not contain a clear shopping intent AND cannot be confidently mapped to a specific product category — e.g. "I'm cold", "I'm tired", "I need help", "what should I buy?", greetings, vague feelings, or statements without an obvious product type. Return insufficient so the clarification agent can probe what the user actually wants to buy.
 
 GENDER & SIZING
 1. Query involves clothing, shoes, or accessories AND gender is absent from the user profile, query text, AND conversation.
@@ -236,33 +206,37 @@ GENERAL CATCH-ALL (apply after all domain-specific rules)
 95. The query is a generic or vague product category (e.g., "headphones", "running shoes", "laptop", "coffee maker", "sofa", "jacket") with no qualifying use case, recipient, activity, size, or platform — AND no relevant profile entry resolves the gap — return insufficient. Ask what matters most for their specific situation.
 96. The query is four words or fewer, describes only a broad category, none of the above rules fire, and no relevant profile context is present — return insufficient and ask for the most critical piece of missing context.
 
-META-RULES
-M1. If the user's query contains enough context to unambiguously resolve the condition in a rule (e.g., "trail running shoes, men's size 10"), the rule does NOT fire — do not ask for information already provided.
-M3. If a rule would fire but the information can be reasonably inferred from strong contextual signals in the conversation (e.g., user previously mentioned their car model, or profile contains gender), treat the gap as resolved.
-M4. Budget / price range is NOT treated as a mandatory ask. Price preferences do not split the product space into incompatible categories — recommend across tiers unless the user explicitly constrains budget.
-
-Return { "sufficient": true } ONLY when no rule fires after applying M1, M3, and M4.
 
 Return valid JSON only, no markdown.
 Output schema: { "sufficient": boolean }`;
+
+  const systemWithReminder =
+    clarificationCount !== undefined
+      ? `${system}\n\nNOTE: You have already asked ${clarificationCount} clarifying question${clarificationCount === 1 ? "" : "s"}. Wrap up the conversation gracefully without being abrupt — strongly prefer returning { "sufficient": true } unless a truly critical piece of information is still missing.`
+      : system;
 
   try {
     const response = await messages.create({
       model,
       max_tokens: 32,
-      system,
-      messages: [{ role: "user", content: buildJudgeContext(query, profileSection, dialogue) }],
+      system: systemWithReminder,
+      messages: [{ role: "user", content: buildContext(query, profileText(userProfile), dialogue) }],
     });
 
     const raw = response.content[0]?.type === "text" ? response.content[0].text : null;
-    if (!raw) return { sufficient: true };
+    if (!raw) return { sufficient: false };
 
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     return JSON.parse(cleaned) as { sufficient: boolean };
-  } catch {
-    return { sufficient: true };
+  } catch (err) {
+    console.error("[runJudgeAgent] error — defaulting to insufficient:", err);
+    return { sufficient: false };
   }
 }
+
+// ── Clarification agent ───────────────────────────────────────────────────────
+// Generates a single friendly clarifying question targeting the most critical
+// information gap. Also handles non-shopping and off-topic messages gracefully.
 
 export async function runClarifyAgent(
   query: string,
@@ -271,19 +245,17 @@ export async function runClarifyAgent(
 ): Promise<{ question: string }> {
   const { messages, model } = getAnthropicConfig("haiku");
 
-  const profileSection = userProfile
-    ? JSON.stringify(userProfile.profile, null, 2)
-    : "No profile available (new user).";
+  const system = `You are I-Shopper, a friendly and helpful AI shopping assistant.
 
-  const system = `You are a shopping assistant gathering missing information needed to make confident product recommendations.
+Your role here is to ask a single, natural clarifying question to gather the most critical missing information needed to find the right products.
 
-Identify all critical information gaps — gaps where missing information fragments the product space into non-overlapping lines (e.g. gender for shoes, platform for software, species for pet products).
-
-Consolidate all firing gaps into a SINGLE, naturally phrased message asking at most 3 questions. Prioritize by which gap eliminates the largest number of non-viable products first. If only one gap exists, ask one question.
-
-Never ask about something already in the profile or already answered in the conversation. Never ask about budget or color — these are not indispensable.
-
-Format: write the questions as a natural conversational message (not a numbered list).
+Guidelines:
+- If the user's message has no clear shopping intent (e.g. a greeting, a question about you, or something off-topic), warmly acknowledge them and ask what they're shopping for today.
+- If there is shopping intent but key details are missing, ask the single most important question that would most narrow down the right products.
+- Consolidate multiple gaps into one naturally phrased question if possible (e.g. "What's your shoe size, and are these for trail or road running?").
+- Never ask about something already answered in the profile or conversation.
+- Never ask about budget or color as a first question — these are not deal-breakers.
+- Be warm, concise, and conversational — like a knowledgeable friend, not a form.
 
 Return valid JSON only, no markdown.
 Output schema: { "question": string }`;
@@ -293,56 +265,75 @@ Output schema: { "question": string }`;
       model,
       max_tokens: 256,
       system,
-      messages: [{ role: "user", content: buildJudgeContext(query, profileSection, dialogue) }],
+      messages: [{ role: "user", content: buildContext(query, profileText(userProfile), dialogue) }],
     });
 
     const raw = response.content[0]?.type === "text" ? response.content[0].text : null;
-    if (!raw) return { question: "Could you tell me more about what you're looking for?" };
+    if (!raw) return { question: "What are you shopping for today?" };
 
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     return JSON.parse(cleaned) as { question: string };
   } catch {
-    return { question: "Could you tell me more about what you're looking for?" };
+    return { question: "What are you shopping for today?" };
   }
 }
 
-// ── Intent agent ──────────────────────────────────────────────────────────────
+// ── Query agent ───────────────────────────────────────────────────────────────
+// Called only after the judge is satisfied. Generates precise search queries
+// and extracts constraints from the full conversation context.
 
-/**
- * history: all prior turns in OpenAI message format (role/content pairs).
- * The chat route is responsible for building this from the conversation state.
- * userMessage: the current user input.
- */
-export async function runIntentAgent(
-  userMessage: string,
-  history: OpenAI.Chat.ChatCompletionMessageParam[],
+export async function runQueryAgent(
+  originalMessage: string,
   userProfile: UserProfile | null,
-  clarificationCount: number
-): Promise<IntentAgentOutput> {
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt(userProfile, clarificationCount) },
-    ...history,
-    { role: "user", content: userMessage },
-  ];
+  dialogue: JudgeDialogueTurn[] = []
+): Promise<QueryAgentOutput> {
+  const profileSection = userProfile
+    ? `User profile (use to tailor queries — brand preferences, lifestyle signals, past signals):\n${JSON.stringify(userProfile.profile, null, 2)}`
+    : "No profile available.";
+
+  const dialogueSection =
+    dialogue.length > 0
+      ? `\nClarification dialogue:\n${dialogue
+          .map((d) => `  User asked about: ${d.question}\n  User answered: ${d.answer}`)
+          .join("\n")}`
+      : "";
+
+  const systemPrompt = `You're I-Shopper, an online shopping agent. Your job is to generate precise, effective product search queries based on a user's shopping request and any clarifying information collected.
+
+${profileSection}
+
+Rules:
+- Generate 2–3 specific, distinct search queries optimized for Google Shopping results.
+- Each query should reflect a slightly different angle (e.g. brand variant, use-case variant, price tier variant).
+- Extract all hard constraints from the conversation: budget, brand, material, size, form factor, etc.
+- NEVER add a gender constraint (men's / women's / boys' / girls') unless the user explicitly stated one.
+- If the budget was stated (e.g. "under $100"), extract it as a budget constraint.
+- Return valid JSON only, no markdown, no explanation.
+
+Output schema:
+{
+  "searchQueries": [string],
+  "detectedConstraints": [{ "type": string, "value": string }]
+}`;
+
+  const userContent = `Original request: "${originalMessage}"${dialogueSection}`;
 
   const { client, model } = getOpenAIConfig();
+
+  const completionMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user",   content: userContent },
+  ];
+
   const response = await client.chat.completions.create({
     model,
-    messages,
+    messages: completionMessages,
     response_format: { type: "json_object" },
     temperature: 0.2,
   });
 
   const raw = response.choices[0]?.message?.content;
-  if (!raw) throw new Error("Intent agent returned empty response");
+  if (!raw) throw new Error("Query agent returned empty response");
 
-  const parsed = JSON.parse(raw) as IntentAgentOutput;
-
-  // Post-parse guard: enforce clarification limit regardless of model output
-  if (clarificationCount >= 2 && parsed.needsClarification) {
-    parsed.needsClarification = false;
-    parsed.clarifyingQuestion = null;
-  }
-
-  return parsed;
+  return JSON.parse(raw) as QueryAgentOutput;
 }

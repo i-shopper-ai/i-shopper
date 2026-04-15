@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicConfig } from "@/lib/llm-clients";
 import { getProfile, setProfile, createDefaultProfile } from "@/lib/db/kv";
 
 export const maxDuration = 60;
-
-const client = new Anthropic();
 
 export interface AutopilotPrediction {
   need: string;    // "Running shoes for marathon training"
@@ -60,8 +58,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No context provided" }, { status: 400 });
     }
 
-    const message = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+    const { messages: anthropicMessages, model } = getAnthropicConfig("haiku");
+    const message = await anthropicMessages.create({
+      model,
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: parts.join("\n\n") }],

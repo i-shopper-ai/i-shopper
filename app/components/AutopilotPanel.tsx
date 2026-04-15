@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AutopilotPrediction } from "@/app/api/autopilot/route";
 
 interface Props {
@@ -11,6 +11,96 @@ interface Props {
 
 type Provider = "google" | "microsoft";
 type Phase = "checking" | "permission" | "fetching" | "input" | "analyzing" | "results";
+
+type ScanItem = { icon: string; subject: string; snippet: string };
+
+function parseContextToScanItems(emailCtx: string, calCtx: string): ScanItem[] {
+  const emails: ScanItem[] = emailCtx
+    .split("\n")
+    .filter((l) => l.trim().startsWith("•"))
+    .slice(0, 12)
+    .map((l) => {
+      const clean = l.replace(/^[•\s]+/, "");
+      const sep = clean.indexOf(" — ");
+      return sep > -1
+        ? { icon: "📧", subject: clean.slice(0, sep).trim(), snippet: clean.slice(sep + 3).trim() }
+        : { icon: "📧", subject: clean.trim(), snippet: "" };
+    });
+  const cal: ScanItem[] = calCtx
+    .split("\n")
+    .filter((l) => l.trim().startsWith("•"))
+    .slice(0, 8)
+    .map((l) => {
+      const clean = l.replace(/^[•\s]+/, "");
+      const sep = clean.indexOf(": ");
+      return sep > -1
+        ? { icon: "📅", subject: clean.slice(sep + 2).trim(), snippet: clean.slice(0, sep).trim() }
+        : { icon: "📅", subject: clean.trim(), snippet: "" };
+    });
+  const result: ScanItem[] = [];
+  const maxLen = Math.max(emails.length, cal.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < emails.length) result.push(emails[i]);
+    if (i < cal.length) result.push(cal[i]);
+  }
+  return result.filter((item) => item.subject.length > 0);
+}
+
+const DEMO_EMAIL_CONTEXT = `\
+• Mother's Day is May 10th — Hey! Just a reminder from the family group chat. We're thinking of getting mom something special this year, any ideas?
+• Half Marathon registration confirmed — Congrats! Your race is May 15th. Arrive by 7am, bib pickup at 6:30am.
+• Yosemite camping trip — Hey! Can you bring a sleeping bag? We're going June 7-9, 8 of us total, car camping.
+• Team offsite: Colorado mountain retreat — Outdoor leadership program July 10-12. Hiking + rock climbing included.
+• Amazon order shipped — Trail running socks 3-pack (Darn Tough) arriving Thursday. Order #112-4857291.
+• New apartment keys ready July 31 — Please note movers must use freight elevator. No furniture assembly included.
+• Ergonomic home office guide — Thanks for signing up! Recommended standing desk, monitor arm, and chair setup inside.
+• Flight confirmation ORD → DEN — Departs Jun 8 7:45am, returns Jun 11. Seat 14C. Carry-on included.
+• Gym membership welcome — Your first free personal training session is Monday at 6am with Coach Rivera.
+• Race training plan week 8 — Long run this Sunday: 14 miles. Don't forget your electrolytes and gels.`;
+
+const DEMO_CALENDAR_CONTEXT = `\
+• Sun, May 10: Mother's Day
+  Note: Mom's birthday was last month, she loves spa days and flowers
+• Wed, May 15: Half Marathon Race
+  Location: Grant Park, Chicago
+• Fri, Jun 7: Yosemite Camping Trip (3 nights)
+  Note: Car camping, site reserved. Bring gear.
+• Wed, Jul 10: Colorado Team Offsite
+  Location: Estes Park, CO
+  Note: Hiking and rock climbing, 3 days
+• Sat, Jun 8: Flight to Denver (ORD → DEN)
+• Sat, Apr 26: Dinner Party (hosting)
+  Note: Potluck for 10, need dessert supplies`;
+
+const DEMO_PREDICTIONS: AutopilotPrediction[] = [
+  {
+    need: "Mother's Day gift for mom",
+    reason: "Mother's Day is May 10th (in 4 weeks) — calendar note says she loves spa days and flowers.",
+    query: "mother's day spa gift set luxury self-care flowers",
+  },
+  {
+    need: "Race-day running gear",
+    reason: "Half Marathon at Grant Park on May 15th — training plan is in week 8, race is in 5 weeks.",
+    query: "marathon race day running belt hydration vest energy gels",
+  },
+  {
+    need: "Camping sleep system",
+    reason: "Yosemite camping trip June 7-9 — family group email asks you to bring a sleeping bag.",
+    query: "lightweight camping sleeping bag 3 season car camping",
+  },
+  {
+    need: "Travel accessories for Colorado trip",
+    reason: "Team offsite in Estes Park July 10-12 includes hiking and rock climbing — 3-day outdoor retreat.",
+    query: "hiking daypack travel accessories rock climbing outdoor trip",
+  },
+  {
+    need: "Ergonomic home office setup",
+    reason: "Moving into new apartment July 31 — you signed up for an ergonomic home office guide.",
+    query: "ergonomic standing desk monitor arm home office setup",
+  },
+];
+
+const DEMO_PROFILE_SIGNALS = ["marathon runner", "outdoor enthusiast", "frequent traveler", "home organizer"];
 
 const PROVIDERS: { id: Provider; name: string; icon: React.ReactNode; color: string }[] = [
   {
@@ -56,6 +146,10 @@ export function AutopilotPanel({ userId, onSearch, onClose }: Props) {
   const [signals,     setSignals]     = useState<string[]>([]);
   const [error,       setError]       = useState<string | null>(null);
 
+  const [scanItems, setScanItems] = useState<ScanItem[]>([]);
+  const [scanIdx,   setScanIdx]   = useState(0);
+  const scanItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   // ── Check both connections on mount ──────────────────────────────────────
   useEffect(() => {
     const enc = encodeURIComponent(userId);
@@ -70,6 +164,21 @@ export function AutopilotPanel({ userId, onSearch, onClose }: Props) {
       setPhase("permission");
     });
   }, [userId]);
+
+  // ── Scan animation: cycle active item while analyzing ─────────────────────
+  useEffect(() => {
+    if (phase !== "analyzing" || scanItems.length === 0) return;
+    setScanIdx(0);
+    const interval = setInterval(() => {
+      setScanIdx((prev) => (prev + 1) % scanItems.length);
+    }, 480);
+    return () => clearInterval(interval);
+  }, [phase, scanItems.length]);
+
+  useEffect(() => {
+    if (phase !== "analyzing") return;
+    scanItemRefs.current[scanIdx]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [scanIdx, phase]);
 
   // ── OAuth redirects ───────────────────────────────────────────────────────
   function connectProvider(provider: Provider) {
@@ -95,6 +204,7 @@ export function AutopilotPanel({ userId, onSearch, onClose }: Props) {
         calendarContext: string;
         emailContext: string;
       };
+      setScanItems(parseContextToScanItems(emailContext, calendarContext));
       await runAnalysis(calendarContext, emailContext, notesText);
     } catch (err) {
       console.error("[autopilot] fetchContext", err);
@@ -132,7 +242,20 @@ export function AutopilotPanel({ userId, onSearch, onClose }: Props) {
   }
 
   async function runManual() {
+    setScanItems(parseContextToScanItems(emailText, calendarText));
     await runAnalysis(calendarText, emailText, notesText);
+  }
+
+  async function runDemo() {
+    const items = parseContextToScanItems(DEMO_EMAIL_CONTEXT, DEMO_CALENDAR_CONTEXT);
+    setScanItems(items);
+    setPhase("analyzing");
+    setError(null);
+    // Let the scan animation play through all items (~480ms × items), then reveal results
+    await new Promise((resolve) => setTimeout(resolve, items.length * 480 + 600));
+    setPredictions(DEMO_PREDICTIONS);
+    setSignals(DEMO_PROFILE_SIGNALS);
+    setPhase("results");
   }
 
   const hasManualContext = calendarText.trim() || emailText.trim() || notesText.trim();
@@ -224,7 +347,10 @@ export function AutopilotPanel({ userId, onSearch, onClose }: Props) {
               </div>
             )}
 
-            <div className="apDivider"><span>or enter manually</span></div>
+            <div className="apDivider"><span>or</span></div>
+            <button className="apDemoBtn" onClick={runDemo}>
+              ✨ Try with demo data
+            </button>
             <button className="apCtaSecondary apCtaFull" onClick={() => setPhase("input")}>
               Paste calendar &amp; email text →
             </button>
@@ -277,15 +403,51 @@ export function AutopilotPanel({ userId, onSearch, onClose }: Props) {
           </div>
         )}
 
-        {/* ── Analyzing ── */}
+        {/* ── Analyzing (scan animation) ── */}
         {phase === "analyzing" && (
-          <div className="apBody apBodyCenter">
-            <div className="apAnalyzingRing">
-              <span className="apAnalyzingIcon">🤖</span>
+          <div className="apBody">
+            <div className="apScanTopBar">
+              <div className="apAnalyzingRing apAnalyzingRingSmall">
+                <span className="apAnalyzingIconSmall">🤖</span>
+              </div>
+              <div>
+                <p className="apAnalyzingText">Analyzing your context…</p>
+                <p className="apAnalyzingSub">
+                  {scanItems.length > 0
+                    ? `Reading ${scanItems.length} items from your inbox & calendar`
+                    : "Extracting upcoming needs and updating your profile"}
+                </p>
+              </div>
             </div>
-            <p className="apAnalyzingText">Analyzing your context…</p>
-            <p className="apAnalyzingSub">Extracting upcoming needs and updating your profile</p>
-            <div className="apAnalyzingDots">
+
+            {scanItems.length > 0 ? (
+              <div className="apScanFeed">
+                {scanItems.map((item, i) => (
+                  <div
+                    key={i}
+                    ref={(el) => { scanItemRefs.current[i] = el; }}
+                    className={
+                      "apScanItem" +
+                      (i === scanIdx ? " apScanItem--active" : i < scanIdx ? " apScanItem--done" : "")
+                    }
+                  >
+                    <span className="apScanItemIcon">{item.icon}</span>
+                    <div className="apScanItemBody">
+                      <span className="apScanItemSubject">{item.subject}</span>
+                      {item.snippet && <span className="apScanItemSnippet">{item.snippet}</span>}
+                    </div>
+                    {i === scanIdx && <span className="apScanItemBadge">Reading…</span>}
+                    {i < scanIdx  && <span className="apScanItemCheck">✓</span>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="apAnalyzingRing" style={{ alignSelf: "center" }}>
+                <span className="apAnalyzingIcon">🤖</span>
+              </div>
+            )}
+
+            <div className="apAnalyzingDots" style={{ justifyContent: "center" }}>
               <span className="apDot apDot--1" /><span className="apDot apDot--2" /><span className="apDot apDot--3" />
             </div>
           </div>

@@ -300,7 +300,7 @@ function ChatPageInner() {
   const [ready, setReady] = useState(false);
 
   // null = not yet chosen for this chat; true/false = chosen
-  const [testMode, setTestMode] = useState<boolean | null>(null);
+  const [testMode, setTestMode] = useState<boolean | null>(false);
 
   // Conversation
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -690,8 +690,6 @@ function ChatPageInner() {
   // ── Autopilot: receive a predicted need and kick off shopping ────────────
 
   function onAutopilotSearch(query: string, label: string) {
-    // Ensure Shop mode is active so send() is not blocked by mode gate
-    if (testMode === null) setTestMode(false);
     // The label is user-friendly; use it as the chat message
     // (the reranker will receive the full query context via the intent agent)
     send(label);
@@ -852,57 +850,26 @@ function ChatPageInner() {
 
         {/* Message feed */}
         <div className="chatFeed" ref={feedRef}>
-          {testMode === null ? (
-            <div className="modePicker">
-              <p className="modePickerTitle">Choose a mode</p>
-              <div className="modeOptions">
-                <button className="modeBtn" onClick={() => setTestMode(false)}>
-                  <span className="modeBtnIcon">🛍</span>
-                  <span className="modeBtnLabel">Shop</span>
-                  <span className="modeBtnSub">Normal shopping experience</span>
-                </button>
-                <button className="modeBtn test" onClick={() => setTestMode(true)}>
-                  <span className="modeBtnIcon">⚡</span>
-                  <span className="modeBtnLabel">Inspector</span>
-                  <span className="modeBtnSub">Show pipeline internals</span>
-                </button>
-              </div>
-              <div className="modeExamples">
-                <span className="modeExamplesLabel">Examples</span>
-                <div className="modeExamplesRow">
-                  {["Laptop bag under $80", "Wireless headphones for running", "Warm winter coat, not bulky", "Coffee maker for small kitchen"].map((p) => (
-                    <span key={p} className="modeExampleChip">{p}</span>
-                  ))}
-                </div>
+          {messages.length === 0 && phase === "idle" && (
+            <div className="emptyState">
+              <p className="emptyStateHint">Examples</p>
+              <div className="examplePromptsRow">
+                {[
+                  "Wireless headphones for running under $100",
+                  "Coffee maker for a small kitchen",
+                  "I need a birthday gift for my best friend",
+                  "Something to make my home office more comfortable",
+                ].map((prompt) => (
+                  <button
+                    key={prompt}
+                    className="examplePromptBtn"
+                    onClick={() => send(prompt)}
+                  >
+                    {prompt}
+                  </button>
+                ))}
               </div>
             </div>
-          ) : (
-            messages.length === 0 && phase === "idle" && (
-              <div className="emptyState">
-                {testMode === true && (
-                  <div className="msg debug" style={{ marginBottom: 12 }}>
-                    {`inspector mode — pipeline stage outputs will appear here after each query`}
-                  </div>
-                )}
-                <p className="emptyStateHint">What are you shopping for today?</p>
-                <div className="examplePromptsRow">
-                  {[
-                    "Laptop bag under $80",
-                    "Wireless headphones for running",
-                    "Warm winter coat, not bulky",
-                    "Coffee maker for small kitchen",
-                  ].map((prompt) => (
-                    <button
-                      key={prompt}
-                      className="examplePromptBtn"
-                      onClick={() => send(prompt)}
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
           )}
 
           {messages.map((m, i) => (
@@ -981,7 +948,7 @@ function ChatPageInner() {
             <textarea
               className="chatInput"
               rows={1}
-              placeholder="What are you looking for?"
+              placeholder="Ask anything you want to shop."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -990,12 +957,12 @@ function ChatPageInner() {
                   send(input);
                 }
               }}
-              disabled={isLoading || testMode === null}
+              disabled={isLoading}
             />
             <button
               className="sendBtn"
               onClick={() => send(input)}
-              disabled={isLoading || testMode === null || !input.trim()}
+              disabled={isLoading || !input.trim()}
             >
               Send
             </button>

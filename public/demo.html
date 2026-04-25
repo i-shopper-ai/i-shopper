@@ -305,13 +305,10 @@
             display: flex;
             gap: 1.5rem;
             width: max-content;
-            animation: carousel-scroll 40s linear infinite;
+            will-change: transform;
         }
 
-        @keyframes carousel-scroll {
-            0%   { transform: translateX(0); }
-            100% { transform: translateX(-50%); }
-        }
+
 
         .scenario-card {
             background: var(--white);
@@ -829,35 +826,26 @@
     </footer>
 
     <script>
-        // Smooth carousel slowdown on hover
         const track = document.querySelector('.carousel-track');
-        let currentDuration = 40;
-        let targetDuration = 40;
-        let rafId = null;
+        const halfWidth = track.scrollWidth / 2;
+        let pos = 0;
+        let currentSpeed = 0.6;
+        let targetSpeed = 0.6;
 
         function lerp(a, b, t) { return a + (b - a) * t; }
 
-        function animateDuration() {
-            currentDuration = lerp(currentDuration, targetDuration, 0.06);
-            track.style.animationDuration = currentDuration + 's';
-            if (Math.abs(currentDuration - targetDuration) > 0.05) {
-                rafId = requestAnimationFrame(animateDuration);
-            } else {
-                currentDuration = targetDuration;
-                track.style.animationDuration = currentDuration + 's';
-                rafId = null;
-            }
+        function tick() {
+            currentSpeed = lerp(currentSpeed, targetSpeed, 0.04);
+            pos += currentSpeed;
+            if (pos >= halfWidth) pos -= halfWidth;
+            track.style.transform = `translateX(-${pos}px)`;
+            requestAnimationFrame(tick);
         }
 
-        track.addEventListener('mouseenter', () => {
-            targetDuration = 160;
-            if (!rafId) rafId = requestAnimationFrame(animateDuration);
-        });
+        track.addEventListener('mouseenter', () => { targetSpeed = 0.1; });
+        track.addEventListener('mouseleave', () => { targetSpeed = 0.6; });
 
-        track.addEventListener('mouseleave', () => {
-            targetDuration = 40;
-            if (!rafId) rafId = requestAnimationFrame(animateDuration);
-        });
+        tick();
     </script>
 </body>
 </html>

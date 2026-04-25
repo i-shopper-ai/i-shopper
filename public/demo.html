@@ -238,7 +238,7 @@
 
         /* ─── Example Scenarios ─── */
         .scenarios-section {
-            padding: 5rem 2rem;
+            padding: 5rem 0;
             background: var(--bg);
         }
 
@@ -270,11 +270,49 @@
             margin: 0 auto;
         }
 
-        .scenarios-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 2rem;
+        /* ─── Carousel ─── */
+        .carousel-outer {
+            position: relative;
+            overflow: hidden;
             margin-top: 3rem;
+            /* Fade edges */
+        }
+
+        .carousel-outer::before,
+        .carousel-outer::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 80px;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .carousel-outer::before {
+            left: 0;
+            background: linear-gradient(to right, var(--bg), transparent);
+        }
+
+        .carousel-outer::after {
+            right: 0;
+            background: linear-gradient(to left, var(--bg), transparent);
+        }
+
+        .carousel-track {
+            display: flex;
+            gap: 1.5rem;
+            width: max-content;
+            animation: carousel-scroll 32s linear infinite;
+        }
+
+        .carousel-track:hover {
+            animation-play-state: paused;
+        }
+
+        @keyframes carousel-scroll {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
         }
 
         .scenario-card {
@@ -282,11 +320,12 @@
             padding: 2.5rem;
             border-radius: 16px;
             border: 1px solid rgba(45, 95, 76, 0.1);
-            transition: all 0.3s ease;
+            width: 380px;
+            flex-shrink: 0;
+            transition: box-shadow 0.3s ease, border-color 0.3s ease;
         }
 
         .scenario-card:hover {
-            transform: translateY(-4px);
             box-shadow: 0 12px 32px rgba(45, 95, 76, 0.12);
             border-color: var(--accent);
         }
@@ -297,7 +336,7 @@
         }
 
         .scenario-card h3 {
-            font-size: 1.5rem;
+            font-size: 1.3rem;
             color: var(--primary);
             margin-bottom: 1rem;
         }
@@ -310,11 +349,13 @@
             font-style: italic;
             color: var(--text-light);
             border-left: 3px solid var(--accent);
+            font-size: 0.95rem;
         }
 
         .scenario-card .agent-result {
             padding: 1rem 0;
             color: var(--text);
+            font-size: 0.95rem;
         }
 
         .scenario-card .result-list {
@@ -323,7 +364,7 @@
         }
 
         .scenario-card .result-list li {
-            padding: 0.5rem 0;
+            padding: 0.4rem 0;
             padding-left: 1.5rem;
             position: relative;
         }
@@ -545,29 +586,27 @@
 
         </div>
 
-    <p class="video-caption">
-        <span class="dot"></span>
-        Live product · No actors · Real results
-    </p>
+
     </section>
 
     <div class="section-divider"></div>
 
-    <!-- Example Scenarios -->
+    <!-- Scenarios Carousel -->
     <section class="scenarios-section">
         <div class="section-container">
             <div class="section-header">
-                <div class="section-label">Real Examples</div>
-                <h2>See how it works</h2>
-                <p>Here are some real-world scenarios showing how I-Shopper helps you make smarter shopping decisions.</p>
+                <div class="section-label">Personalized for you</div>
+                <h2>What I-Shopper can do for you</h2>
+                <p>Based on your preferences, I-Shopper tailors every search, comparison, and recommendation to you specifically.</p>
             </div>
-            <div class="scenarios-grid">
+        </div>
+        <div class="carousel-outer">
+            <div class="carousel-track">
+                <!-- Original set -->
                 <div class="scenario-card">
                     <div class="scenario-icon">💻</div>
                     <h3>Finding the Perfect Laptop</h3>
-                    <div class="user-query">
-                        "I need a laptop for video editing. Budget around $1,500. Prefer something portable but with good performance."
-                    </div>
+                    <div class="user-query">"I need a laptop for video editing. Budget around $1,500. Prefer something portable but with good performance."</div>
                     <div class="agent-result">
                         <strong>I-Shopper searches across 20+ retailers and analyzes:</strong>
                         <ul class="result-list">
@@ -579,13 +618,10 @@
                         <p style="margin-top: 1rem;"><strong>Result:</strong> Personalized shortlist of 3 laptops with honest comparisons and a clear recommendation based on your priorities.</p>
                     </div>
                 </div>
-
                 <div class="scenario-card">
                     <div class="scenario-icon">👟</div>
                     <h3>Running Shoes for Marathon Training</h3>
-                    <div class="user-query">
-                        "Training for my first marathon. Need running shoes with good cushioning. Tend to overpronate slightly."
-                    </div>
+                    <div class="user-query">"Training for my first marathon. Need running shoes with good cushioning. Tend to overpronate slightly."</div>
                     <div class="agent-result">
                         <strong>I-Shopper considers:</strong>
                         <ul class="result-list">
@@ -597,13 +633,10 @@
                         <p style="margin-top: 1rem;"><strong>Result:</strong> Top 3 recommendations with specific reasons why each might work for you, plus sizing tips.</p>
                     </div>
                 </div>
-
                 <div class="scenario-card">
                     <div class="scenario-icon">🎧</div>
                     <h3>Noise-Canceling Headphones</h3>
-                    <div class="user-query">
-                        "Best noise-canceling headphones for flights and working in coffee shops. Care more about comfort than sound quality."
-                    </div>
+                    <div class="user-query">"Best noise-canceling headphones for flights and working in coffee shops. Care more about comfort than sound quality."</div>
                     <div class="agent-result">
                         <strong>I-Shopper analyzes:</strong>
                         <ul class="result-list">
@@ -615,13 +648,10 @@
                         <p style="margin-top: 1rem;"><strong>Result:</strong> Recommendations prioritizing comfort and ANC over audiophile features, with price-to-value assessment.</p>
                     </div>
                 </div>
-
                 <div class="scenario-card">
                     <div class="scenario-icon">🏠</div>
                     <h3>Smart Home Security Camera</h3>
-                    <div class="user-query">
-                        "Need an outdoor security camera. Want good night vision and no monthly subscription fees if possible."
-                    </div>
+                    <div class="user-query">"Need an outdoor security camera. Want good night vision and no monthly subscription fees if possible."</div>
                     <div class="agent-result">
                         <strong>I-Shopper evaluates:</strong>
                         <ul class="result-list">
@@ -633,67 +663,66 @@
                         <p style="margin-top: 1rem;"><strong>Result:</strong> Comparison of cameras with no subscription vs. optional subscription, highlighting long-term cost differences.</p>
                     </div>
                 </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Interactive Demo -->
-    <section class="interactive-demo">
-        <div class="section-container">
-            <div class="section-header">
-                <div class="section-label">Try It Out</div>
-                <h2>Interactive demo</h2>
-                <p>Try asking I-Shopper about a product you're considering. (This is a simulated demo.)</p>
-            </div>
-            <div class="demo-interface">
-                <div class="demo-chat" id="demo-chat">
-                    <div class="message agent">
-                        <div class="message-bubble">
-                            Hi! I'm your I-Shopper agent. What are you shopping for today?
-                        </div>
-                    </div>
-                    <div class="message user" style="display: none;" data-prefill="1">
-                        <div class="message-bubble">I need a good laptop for video editing under $1,500</div>
-                    </div>
-                    <div class="message agent" style="display: none;" data-prefill="2">
-                        <div class="message-bubble">
-                            Perfect! Let me search for video editing laptops under $1,500. I'm analyzing CPU/GPU performance benchmarks, real user reviews from video editors, and comparing specs across 20+ retailers.<br><br>
-                            Here are my top 3 recommendations:<br><br>
-                            <strong>1. Dell XPS 15 (9530)</strong> - $1,449<br>
-                            • Intel i7-13700H, RTX 4050, 16GB RAM<br>
-                            • Excellent color accuracy (100% sRGB)<br>
-                            • Best for: Premiere Pro, DaVinci Resolve<br><br>
-                            <strong>2. ASUS ProArt P16</strong> - $1,399<br>
-                            • AMD Ryzen 9, RTX 4060, 32GB RAM<br>
-                            • Great thermals for sustained workloads<br>
-                            • Best for: After Effects, 4K editing<br><br>
-                            <strong>3. MacBook Pro 14" M3</strong> - $1,499 (refurb)<br>
-                            • M3 chip, 18GB unified memory<br>
-                            • Best battery life (18+ hours)<br>
-                            • Best for: Final Cut Pro, portability<br><br>
-                            Which features matter most to you—raw performance, portability, or battery life?
-                        </div>
-                    </div>
-                    <div class="message user" style="display: none;" data-prefill="3">
-                        <div class="message-bubble">I think the ASUS looks good. Can you check if there are any better deals?</div>
-                    </div>
-                    <div class="message agent" style="display: none;" data-prefill="4">
-                        <div class="message-bubble">
-                            Great choice! The ASUS ProArt P16 is excellent for video editing. Let me check for better pricing...<br><br>
-                            <strong>Price Comparison:</strong><br>
-                            • Amazon: $1,399 (in stock, Prime shipping)<br>
-                            • B&H Photo: $1,349 (in stock, free shipping)<br>
-                            • Best Buy: $1,399 (limited stock)<br>
-                            • ASUS Direct: $1,449 (student discount available: -$50)<br><br>
-                            <strong>Best deal: B&H Photo at $1,349</strong> — saves you $50 vs. Amazon, free expedited shipping, arrives in 3–4 days.<br><br>
-                            Would you like me to proceed with this purchase? I can handle checkout and you'll approve before payment is processed.
-                        </div>
+                <!-- Duplicate set for seamless loop -->
+                <div class="scenario-card">
+                    <div class="scenario-icon">💻</div>
+                    <h3>Finding the Perfect Laptop</h3>
+                    <div class="user-query">"I need a laptop for video editing. Budget around $1,500. Prefer something portable but with good performance."</div>
+                    <div class="agent-result">
+                        <strong>I-Shopper searches across 20+ retailers and analyzes:</strong>
+                        <ul class="result-list">
+                            <li>CPU/GPU performance benchmarks for video editing</li>
+                            <li>Real user reviews from video editors</li>
+                            <li>Weight vs. battery life trade-offs</li>
+                            <li>Price history and current deals</li>
+                        </ul>
+                        <p style="margin-top: 1rem;"><strong>Result:</strong> Personalized shortlist of 3 laptops with honest comparisons and a clear recommendation based on your priorities.</p>
                     </div>
                 </div>
-                <div class="demo-suggestions" style="margin-top: 1.5rem;">
-                    <div class="suggestion-chip" onclick="suggestQuery('I need a coffee maker under $100')">Coffee maker</div>
-                    <div class="suggestion-chip" onclick="suggestQuery('Best wireless earbuds for running')">Running earbuds</div>
-                    <div class="suggestion-chip" onclick="suggestQuery('Ergonomic office chair recommendation')">Office chair</div>
+                <div class="scenario-card">
+                    <div class="scenario-icon">👟</div>
+                    <h3>Running Shoes for Marathon Training</h3>
+                    <div class="user-query">"Training for my first marathon. Need running shoes with good cushioning. Tend to overpronate slightly."</div>
+                    <div class="agent-result">
+                        <strong>I-Shopper considers:</strong>
+                        <ul class="result-list">
+                            <li>Biomechanical analysis of overpronation support</li>
+                            <li>Cushioning specs and durability for high mileage</li>
+                            <li>Reviews from marathon runners</li>
+                            <li>Sizing consistency across brands</li>
+                        </ul>
+                        <p style="margin-top: 1rem;"><strong>Result:</strong> Top 3 recommendations with specific reasons why each might work for you, plus sizing tips.</p>
+                    </div>
+                </div>
+                <div class="scenario-card">
+                    <div class="scenario-icon">🎧</div>
+                    <h3>Noise-Canceling Headphones</h3>
+                    <div class="user-query">"Best noise-canceling headphones for flights and working in coffee shops. Care more about comfort than sound quality."</div>
+                    <div class="agent-result">
+                        <strong>I-Shopper analyzes:</strong>
+                        <ul class="result-list">
+                            <li>Active noise cancellation effectiveness</li>
+                            <li>Comfort ratings for extended wear</li>
+                            <li>Battery life for long flights</li>
+                            <li>Bluetooth connectivity reliability</li>
+                        </ul>
+                        <p style="margin-top: 1rem;"><strong>Result:</strong> Recommendations prioritizing comfort and ANC over audiophile features, with price-to-value assessment.</p>
+                    </div>
+                </div>
+                <div class="scenario-card">
+                    <div class="scenario-icon">🏠</div>
+                    <h3>Smart Home Security Camera</h3>
+                    <div class="user-query">"Need an outdoor security camera. Want good night vision and no monthly subscription fees if possible."</div>
+                    <div class="agent-result">
+                        <strong>I-Shopper evaluates:</strong>
+                        <ul class="result-list">
+                            <li>Night vision quality and range</li>
+                            <li>Local vs. cloud storage options</li>
+                            <li>Privacy and data security features</li>
+                            <li>Weather resistance and durability</li>
+                        </ul>
+                        <p style="margin-top: 1rem;"><strong>Result:</strong> Comparison of cameras with no subscription vs. optional subscription, highlighting long-term cost differences.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -711,65 +740,6 @@
         <p>&copy; 2026 I-Shopper. <a href="/">Back to Home</a></p>
     </footer>
 
-    <script>
-        let demoComplete = false;
 
-        window.addEventListener('load', function() {
-            setTimeout(startDemo, 500);
-        });
-
-        function startDemo() {
-            const chat = document.getElementById('demo-chat');
-            const prefilledMessages = chat.querySelectorAll('[data-prefill]');
-            prefilledMessages.forEach((msg, index) => {
-                setTimeout(() => {
-                    msg.style.display = 'block';
-                    chat.scrollTop = chat.scrollHeight;
-                    if (index === prefilledMessages.length - 1) {
-                        demoComplete = true;
-                    }
-                }, (index + 1) * 1200);
-            });
-        }
-
-        function suggestQuery(query) {
-            if (!demoComplete) return;
-            const chat = document.getElementById('demo-chat');
-
-            const messages = chat.querySelectorAll('.message');
-            messages.forEach((msg, index) => { if (index > 0) msg.remove(); });
-
-            demoComplete = false;
-
-            const userMsg = document.createElement('div');
-            userMsg.className = 'message user';
-            userMsg.innerHTML = `<div class="message-bubble">${query}</div>`;
-            chat.appendChild(userMsg);
-            chat.scrollTop = chat.scrollHeight;
-
-            setTimeout(() => {
-                const agentMsg = document.createElement('div');
-                agentMsg.className = 'message agent';
-
-                let response = demoResponses.default;
-                const lowerQuery = query.toLowerCase();
-                if (lowerQuery.includes('coffee')) response = demoResponses.coffee;
-                else if (lowerQuery.includes('earbud') || lowerQuery.includes('headphone')) response = demoResponses.earbuds;
-                else if (lowerQuery.includes('chair')) response = demoResponses.chair;
-
-                agentMsg.innerHTML = `<div class="message-bubble">${response}</div>`;
-                chat.appendChild(agentMsg);
-                chat.scrollTop = chat.scrollHeight;
-                demoComplete = true;
-            }, 1500);
-        }
-
-        const demoResponses = {
-            coffee: "Great! Let me search for coffee makers under $100. I'm looking at drip machines, single-serve pod brewers, and French presses. Based on your budget, top picks are the Ninja CE251 (12-cup, programmable, $79), Cuisinart DCC-3200P1 (glass carafe, excellent reviews, $89), or the Bodum Chambord French Press ($40). Which features matter most?",
-            earbuds: "Perfect! For running earbuds I'm prioritizing secure fit, water resistance, and sound quality. Top options: Jabra Elite 7 Active ($179 – IP57 rating, great stability), Beats Fit Pro ($199 – secure wingtips, strong bass), and Jaybird Vista 2 ($149 – military-grade durability). Do you prefer over-ear hooks or in-ear only?",
-            chair: "Let me help you find an ergonomic office chair! Key considerations: lumbar support, adjustability, and long-term comfort. Top picks: Herman Miller Aeron (used, ~$600 – industry standard), Steelcase Gesture (~$1,100 – most adjustable), or the Branch Ergonomic Chair ($350 – best value). What's your budget range?",
-            default: "I'm analyzing products across multiple retailers for you! In a real session I would: search 15–20 major platforms, analyze hundreds of reviews, compare prices and specs, and generate a personalized shortlist in seconds. Want to learn more about how I-Shopper works?"
-        };
-    </script>
 </body>
 </html>

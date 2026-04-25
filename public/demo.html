@@ -40,7 +40,7 @@
             line-height: 1.2;
         }
 
-        /* Navigation - same as index */
+        /* Navigation */
         nav {
             position: fixed;
             top: 0;
@@ -86,25 +86,149 @@
             color: var(--primary);
         }
 
-        /* Hero */
+        /* ─── Hero ─── */
         .demo-hero {
             margin-top: 80px;
-            padding: 4rem 2rem 3rem;
+            padding: 5rem 2rem 0;
             text-align: center;
-            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-alt) 100%);
+            background: linear-gradient(160deg, var(--bg) 0%, var(--bg-alt) 100%);
+        }
+
+        .demo-hero .eyebrow {
+            display: inline-block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 1.25rem;
+            border: 1px solid rgba(212, 165, 116, 0.4);
+            padding: 0.35rem 1rem;
+            border-radius: 20px;
+            background: rgba(212, 165, 116, 0.08);
         }
 
         .demo-hero h1 {
-            font-size: 3rem;
+            font-size: 3.2rem;
             color: var(--primary);
-            margin-bottom: 1rem;
+            margin-bottom: 1.1rem;
+            letter-spacing: -0.02em;
         }
 
         .demo-hero p {
-            font-size: 1.2rem;
+            font-size: 1.15rem;
             color: var(--text-light);
-            max-width: 700px;
-            margin: 0 auto 2rem;
+            max-width: 620px;
+            margin: 0 auto 3rem;
+        }
+
+        /* ─── Video Container ─── */
+        .video-wrapper {
+            position: relative;
+            max-width: 900px;
+            margin: 0 auto;
+            /* Pulls video down so it bleeds into the next section */
+        }
+
+        /* Decorative glow behind the video */
+        .video-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: -30px -40px;
+            background: radial-gradient(ellipse at 50% 40%, rgba(45, 95, 76, 0.12) 0%, transparent 70%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .video-shell {
+            position: relative;
+            z-index: 1;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow:
+                0 2px 4px rgba(0,0,0,0.04),
+                0 8px 24px rgba(45, 95, 76, 0.1),
+                0 32px 64px rgba(45, 95, 76, 0.14);
+            /* Thin border that mimics a device bezel */
+            border: 1px solid rgba(45, 95, 76, 0.18);
+            background: var(--text);
+        }
+
+        /* Fake browser chrome bar */
+        .video-chrome {
+            background: #2a2a2a;
+            padding: 0.65rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chrome-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+        }
+
+        .chrome-dot:nth-child(1) { background: #ff5f57; }
+        .chrome-dot:nth-child(2) { background: #febc2e; }
+        .chrome-dot:nth-child(3) { background: #28c840; }
+
+        .chrome-url {
+            flex: 1;
+            background: #3a3a3a;
+            border-radius: 6px;
+            height: 24px;
+            margin-left: 0.5rem;
+            display: flex;
+            align-items: center;
+            padding: 0 0.75rem;
+            gap: 0.4rem;
+        }
+
+        .chrome-url span {
+            font-size: 0.72rem;
+            color: #aaa;
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        .chrome-url .lock-icon {
+            color: #5cb85c;
+            font-size: 0.65rem;
+        }
+
+        .video-shell video {
+            display: block;
+            width: 100%;
+            /* Match the aspect ratio of your recording — 16:9 is standard */
+            aspect-ratio: 16 / 10;
+            object-fit: cover;
+            background: #1a1a1a;
+        }
+
+        /* Caption row below video */
+        .video-caption {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            margin-top: 1.25rem;
+            padding-bottom: 4rem;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .video-caption .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            display: inline-block;
+        }
+
+        /* ─── Divider between hero and scenarios ─── */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(45, 95, 76, 0.15), transparent);
         }
 
         .section-container {
@@ -112,7 +236,7 @@
             margin: 0 auto;
         }
 
-        /* Example Scenarios */
+        /* ─── Example Scenarios ─── */
         .scenarios-section {
             padding: 5rem 2rem;
             background: var(--bg);
@@ -212,7 +336,7 @@
             font-weight: bold;
         }
 
-        /* Interactive Demo */
+        /* ─── Interactive Demo ─── */
         .interactive-demo {
             padding: 5rem 2rem;
             background: var(--white);
@@ -241,9 +365,7 @@
             animation: fadeIn 0.5s ease;
         }
 
-        .message.user {
-            text-align: right;
-        }
+        .message.user { text-align: right; }
 
         .message-bubble {
             display: inline-block;
@@ -260,41 +382,6 @@
         .message.agent .message-bubble {
             background: var(--bg-alt);
             color: var(--text);
-        }
-
-        .demo-input-area {
-            display: flex;
-            gap: 1rem;
-        }
-
-        .demo-input-area input {
-            flex: 1;
-            padding: 1rem 1.5rem;
-            border: 2px solid var(--bg-alt);
-            border-radius: 8px;
-            font-size: 1rem;
-            font-family: 'DM Sans', sans-serif;
-            transition: border-color 0.3s ease;
-        }
-
-        .demo-input-area input:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-
-        .demo-input-area button {
-            padding: 1rem 2rem;
-            background: var(--primary);
-            color: var(--white);
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .demo-input-area button:hover {
-            background: var(--primary-light);
         }
 
         .demo-suggestions {
@@ -319,7 +406,7 @@
             color: var(--white);
         }
 
-        /* CTA */
+        /* ─── CTA ─── */
         .demo-cta {
             padding: 5rem 2rem;
             background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
@@ -376,27 +463,24 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Responsive */
+        /* ─── Responsive ─── */
         @media (max-width: 968px) {
-            .nav-links {
-                display: none;
-            }
+            .nav-links { display: none; }
+            .demo-hero h1 { font-size: 2rem; }
+            .scenarios-grid { grid-template-columns: 1fr; }
+            .message-bubble { max-width: 85%; }
+            .video-chrome { padding: 0.5rem 0.75rem; }
+        }
 
-            .demo-hero h1 {
-                font-size: 2rem;
-            }
-
-            .scenarios-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .message-bubble {
-                max-width: 85%;
-            }
+        @media (max-width: 600px) {
+            .demo-hero { padding: 4rem 1.25rem 0; }
+            .video-wrapper { margin: 0 -0.5rem; }
+            .video-shell { border-radius: 12px; }
         }
     </style>
 </head>
 <body>
+
     <!-- Navigation -->
     <nav>
         <div class="nav-container">
@@ -410,11 +494,63 @@
         </div>
     </nav>
 
-    <!-- Hero -->
+    <!-- ─── Hero + Video ─── -->
     <section class="demo-hero">
+        <span class="eyebrow">Product Demo</span>
         <h1>See I-Shopper in action</h1>
         <p>Watch how our AI-powered shopping agent transforms hours of research into confident decisions in minutes.</p>
+
+        <div class="video-wrapper">
+            <div class="video-shell">
+                <!-- Fake browser chrome makes it look intentional, not just a raw video dump -->
+                <div class="video-chrome">
+                    <div class="chrome-dot"></div>
+                    <div class="chrome-dot"></div>
+                    <div class="chrome-dot"></div>
+                    <div class="chrome-url">
+                        <span class="lock-icon">🔒</span>
+                        <span>app.ishopper.com</span>
+                    </div>
+                </div>
+                <!--
+                    VIDEO SETUP INSTRUCTIONS
+                    ─────────────────────────────────────────────────────────────
+                    1. Convert your .mov to .mp4:
+                       ffmpeg -i "I-Shopper_Demo__with_caption___1_.mov" \
+                              -vcodec h264 -acodec aac \
+                              ishopper-demo.mp4
+                       (or use Handbrake / cloudconvert.com)
+
+                    2. Place ishopper-demo.mp4 in the same folder as this file.
+
+                    3. The video autoplays muted and loops silently (like every
+                       great SaaS demo page). Users can click to unmute if you
+                       want sound — add controls or a custom mute toggle below.
+                    ─────────────────────────────────────────────────────────────
+                -->
+                <video
+                    src="ishopper-demo.mp4"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    preload="metadata"
+                    poster=""
+                >
+                    <!-- Fallback for very old browsers -->
+                    Your browser doesn't support HTML5 video.
+                    <a href="ishopper-demo.mp4">Download the demo</a>.
+                </video>
+            </div>
+
+            <p class="video-caption">
+                <span class="dot"></span>
+                Live product · No actors · Real results
+            </p>
+        </div>
     </section>
+
+    <div class="section-divider"></div>
 
     <!-- Example Scenarios -->
     <section class="scenarios-section">
@@ -548,7 +684,7 @@
                             • B&H Photo: $1,349 (in stock, free shipping)<br>
                             • Best Buy: $1,399 (limited stock)<br>
                             • ASUS Direct: $1,449 (student discount available: -$50)<br><br>
-                            <strong>Best deal: B&H Photo at $1,349</strong> - saves you $50 vs. Amazon, includes free expedited shipping, arrives in 3-4 days.<br><br>
+                            <strong>Best deal: B&H Photo at $1,349</strong> — saves you $50 vs. Amazon, free expedited shipping, arrives in 3–4 days.<br><br>
                             Would you like me to proceed with this purchase? I can handle checkout and you'll approve before payment is processed.
                         </div>
                     </div>
@@ -566,7 +702,7 @@
     <section class="demo-cta">
         <h2>Ready to try the real thing?</h2>
         <p>Join our waitlist for early access to I-Shopper.</p>
-        <a href="index.html#waitlist" class="btn" href="/chat">Try I-Shopper</a>
+        <a href="index.html#waitlist" class="btn">Join the waitlist</a>
     </section>
 
     <!-- Footer -->
@@ -577,24 +713,17 @@
     <script>
         let demoComplete = false;
 
-        // Auto-start the demo when page loads
         window.addEventListener('load', function() {
-            setTimeout(() => {
-                startDemo();
-            }, 500);
+            setTimeout(startDemo, 500);
         });
 
         function startDemo() {
             const chat = document.getElementById('demo-chat');
-            
-            // Show all pre-filled messages with delays
             const prefilledMessages = chat.querySelectorAll('[data-prefill]');
             prefilledMessages.forEach((msg, index) => {
                 setTimeout(() => {
                     msg.style.display = 'block';
                     chat.scrollTop = chat.scrollHeight;
-                    
-                    // After last message, enable suggestion chips
                     if (index === prefilledMessages.length - 1) {
                         demoComplete = true;
                     }
@@ -603,64 +732,42 @@
         }
 
         function suggestQuery(query) {
-            if (!demoComplete) return; // Don't allow clicks until demo is done
-            
+            if (!demoComplete) return;
             const chat = document.getElementById('demo-chat');
-            
-            // Clear all messages except the first agent greeting
+
             const messages = chat.querySelectorAll('.message');
-            messages.forEach((msg, index) => {
-                if (index > 0) {
-                    msg.remove();
-                }
-            });
-            
-            // Hide prefilled messages
-            const prefilledMessages = chat.querySelectorAll('[data-prefill]');
-            prefilledMessages.forEach(msg => {
-                msg.style.display = 'none';
-            });
-            
-            // Reset state
+            messages.forEach((msg, index) => { if (index > 0) msg.remove(); });
+
             demoComplete = false;
-            
-            // Add user message
+
             const userMsg = document.createElement('div');
             userMsg.className = 'message user';
             userMsg.innerHTML = `<div class="message-bubble">${query}</div>`;
             chat.appendChild(userMsg);
             chat.scrollTop = chat.scrollHeight;
-            
-            // Add agent response after delay
+
             setTimeout(() => {
                 const agentMsg = document.createElement('div');
                 agentMsg.className = 'message agent';
-                
+
                 let response = demoResponses.default;
                 const lowerQuery = query.toLowerCase();
-                
-                if (lowerQuery.includes('coffee')) {
-                    response = demoResponses.coffee;
-                } else if (lowerQuery.includes('earbud') || lowerQuery.includes('headphone')) {
-                    response = demoResponses.earbuds;
-                } else if (lowerQuery.includes('chair')) {
-                    response = demoResponses.chair;
-                }
-                
+                if (lowerQuery.includes('coffee')) response = demoResponses.coffee;
+                else if (lowerQuery.includes('earbud') || lowerQuery.includes('headphone')) response = demoResponses.earbuds;
+                else if (lowerQuery.includes('chair')) response = demoResponses.chair;
+
                 agentMsg.innerHTML = `<div class="message-bubble">${response}</div>`;
                 chat.appendChild(agentMsg);
                 chat.scrollTop = chat.scrollHeight;
-                
-                // Re-enable buttons after response
                 demoComplete = true;
             }, 1500);
         }
 
         const demoResponses = {
-            'coffee': "Great! Let me search for coffee makers under $100. I'm looking at: drip coffee makers, single-serve pod machines, and French presses. I'll analyze features like brew time, capacity, programmability, and user reviews. Based on your budget, I'd recommend checking out the Ninja CE251 (12-cup, programmable, $79), Cuisinart DCC-3200P1 (glass carafe, excellent reviews, $89), or if you want something simpler, the Bodum Chambord French Press ($40). Which features matter most to you?",
-            'earbuds': "Perfect! For running earbuds, I'm prioritizing: secure fit, water resistance, and good sound quality. I'm analyzing the Jabra Elite 7 Active ($179 - excellent stability, IP57 rating), Beats Fit Pro ($199 - great bass, secure wingtips), and Jaybird Vista 2 ($149 - military-grade durability). All have decent battery life. Do you prefer over-ear hooks or in-ear only?",
-            'chair': "Let me help you find an ergonomic office chair! I'm considering: lumbar support quality, adjustability, build quality, and long-term comfort reviews. Top options: Herman Miller Aeron (used, ~$600 - industry standard), Steelcase Gesture (~$1,100 new - most adjustable), or if budget-friendly, Branch Ergonomic Chair ($350 - great value). What's your budget range and do you have any specific pain points?",
-            'default': "I'm analyzing products across multiple retailers for you! In a real session, I would: 1) Search 15-20 major e-commerce platforms, 2) Analyze hundreds of reviews and specs, 3) Compare prices and features, 4) Generate a personalized shortlist based on your preferences. This demo is simplified, but the real I-Shopper does all this in seconds. Interested in learning more?"
+            coffee: "Great! Let me search for coffee makers under $100. I'm looking at drip machines, single-serve pod brewers, and French presses. Based on your budget, top picks are the Ninja CE251 (12-cup, programmable, $79), Cuisinart DCC-3200P1 (glass carafe, excellent reviews, $89), or the Bodum Chambord French Press ($40). Which features matter most?",
+            earbuds: "Perfect! For running earbuds I'm prioritizing secure fit, water resistance, and sound quality. Top options: Jabra Elite 7 Active ($179 – IP57 rating, great stability), Beats Fit Pro ($199 – secure wingtips, strong bass), and Jaybird Vista 2 ($149 – military-grade durability). Do you prefer over-ear hooks or in-ear only?",
+            chair: "Let me help you find an ergonomic office chair! Key considerations: lumbar support, adjustability, and long-term comfort. Top picks: Herman Miller Aeron (used, ~$600 – industry standard), Steelcase Gesture (~$1,100 – most adjustable), or the Branch Ergonomic Chair ($350 – best value). What's your budget range?",
+            default: "I'm analyzing products across multiple retailers for you! In a real session I would: search 15–20 major platforms, analyze hundreds of reviews, compare prices and specs, and generate a personalized shortlist in seconds. Want to learn more about how I-Shopper works?"
         };
     </script>
 </body>

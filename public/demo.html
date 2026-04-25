@@ -305,11 +305,7 @@
             display: flex;
             gap: 1.5rem;
             width: max-content;
-            animation: carousel-scroll 56s linear infinite;
-        }
-
-        .carousel-track:hover {
-            animation-play-state: paused;
+            animation: carousel-scroll 40s linear infinite;
         }
 
         @keyframes carousel-scroll {
@@ -322,7 +318,7 @@
             padding: 2.5rem;
             border-radius: 16px;
             border: 1px solid rgba(45, 95, 76, 0.1);
-            width: 380px;
+            width: 300px;
             flex-shrink: 0;
             transition: box-shadow 0.3s ease, border-color 0.3s ease;
         }
@@ -832,6 +828,36 @@
         <p>&copy; 2026 I-Shopper. <a href="/">Back to Home</a></p>
     </footer>
 
+    <script>
+        // Smooth carousel slowdown on hover
+        const track = document.querySelector('.carousel-track');
+        let currentDuration = 40;
+        let targetDuration = 40;
+        let rafId = null;
 
+        function lerp(a, b, t) { return a + (b - a) * t; }
+
+        function animateDuration() {
+            currentDuration = lerp(currentDuration, targetDuration, 0.06);
+            track.style.animationDuration = currentDuration + 's';
+            if (Math.abs(currentDuration - targetDuration) > 0.05) {
+                rafId = requestAnimationFrame(animateDuration);
+            } else {
+                currentDuration = targetDuration;
+                track.style.animationDuration = currentDuration + 's';
+                rafId = null;
+            }
+        }
+
+        track.addEventListener('mouseenter', () => {
+            targetDuration = 160;
+            if (!rafId) rafId = requestAnimationFrame(animateDuration);
+        });
+
+        track.addEventListener('mouseleave', () => {
+            targetDuration = 40;
+            if (!rafId) rafId = requestAnimationFrame(animateDuration);
+        });
+    </script>
 </body>
 </html>
